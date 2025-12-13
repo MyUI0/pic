@@ -56,10 +56,10 @@ RULESET_URLS=(
 DNS_SERVERS=(
   "HK_proxy_server_01|https://1.1.1.1/dns-query"
   "SG_proxy_server_01|https://1.1.1.1/dns-query"
-  "SG_proxy_server_01|https://1.1.1.1/dns-query"
   "US_proxy_server_02|https://1.1.1.1/dns-query"
   "US_IPV6_proxy_server_02|https://1.1.1.1/dns-query"
   
   # https://8.8.8.8/dns-query 会被作为默认DNS服务器
   "Default_DNS_Server|https://8.8.8.8/dns-query
-  rcode://refused"
+rcode://refused"
+)

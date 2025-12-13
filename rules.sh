@@ -1,10 +1,10 @@
 #!/bin/bash
-# Homeproxy自动生成配置脚本（修正版）
 
-# 订阅链接：用?remark=分隔URL和标签，避免#锚点截断
+# 订阅链接
 SUBSCRIPTION_URLS=(
-  "https://dash.pqjc.site/api/v1/client/subscribe?token=fc9b60b018923d16b73dd854d48de691&remark=机场01"
-  "https://airport02.subscription.url/subscribe?token=yyyy&remark=机场02"
+  # 若标签名包含中文，需要确保当前文件的编码为UTF-8，否则界面乱码
+  "https://dash.pqjc.site/api/v1/client/subscribe?token=fc9b60b018923d16b73dd854d48de691#机场01"
+  "https://airport02.subscription.url/subscribe?token=yyyy#机场02"
 )
 
 RULESET_URLS=(
@@ -57,3 +57,4 @@ DNS_SERVERS=(
   # https://8.8.8.8/dns-query 会被作为默认DNS服务器
   "Default_DNS_Server|https://8.8.8.8/dns-query
   rcode://refused"
+)

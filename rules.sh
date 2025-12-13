@@ -9,8 +9,6 @@ SUBSCRIPTION_URLS=(
 
 RULESET_URLS=(
 
-  "reject_out|/etc/homeproxy/ruleset/adblockdns.srs"
-
   "HK_proxy_server_01|
   https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs
   https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/googlefcm.srs
@@ -42,9 +40,6 @@ RULESET_URLS=(
   https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/telegram.srs
   https://raw.githubusercontent.com/DustinWin/ruleset_geodata/sing-box-ruleset/telegramip.srs"
   
-  "direct_out|/etc/homeproxy/ruleset/MyDirect.json
-  https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs
-  https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs"
 )
 
 DNS_SERVERS=(

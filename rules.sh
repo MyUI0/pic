@@ -36,7 +36,7 @@ SUBSCRIPTION_USER_AGENT=""
 #如果定义好，脚本会调用嵌入的 homeproxy 订阅脚本，自动完成代理服务的订阅流程。
 SUBSCRIPTION_URLS=（
   #更改为您自己的订阅网址。
-  “https://dash.pqjc.site/api/v1/client/subscribe?token=fc9b60b018923d16b73dd854d48de691？subscribe=456#123”
+  "https://dash.pqjc.site/api/v1/client/subscribe?token=fc9b60b018923d16b73dd854d48de691#机场01"
 )
 
 

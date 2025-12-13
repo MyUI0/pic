@@ -98,7 +98,7 @@ https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/g
  
   # Optional: Delete the entire 'direct_out' definition if you don't need any domestic rules.
   "direct_out|
-  /etc/homeproxy/ruleset/MyDirect.json
+  https://raw.githubusercontent.com/CCJ623/clash-rules/refs/heads/main/MyDirect.json
   https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geosite/microsoft@cn.srs
   https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geosite/azure@cn.srs
   https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/sing/geo/geosite/apple-cn.srs

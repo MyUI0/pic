@@ -3,7 +3,7 @@
 # 订阅链接
 SUBSCRIPTION_URLS=(
   # 若标签名包含中文，需要确保当前文件的编码为UTF-8，否则界面乱码
-  "https://dash.pqjc.site/api/v1/client/subscribe?token=fc9b60b018923d16b73dd854d48de691#机场01"
+  "https://dash.pqjc.site/api/v1/client/subscribe?token=#机场01"
   "https://airport02.subscription.url/subscribe?token=yyyy#机场02"
 )
 

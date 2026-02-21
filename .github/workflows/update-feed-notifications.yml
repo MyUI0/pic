@@ -21,11 +21,6 @@ jobs:
     - name: 📥 检出代码
       uses: actions/checkout@v4
 
-    - name: 🐍 设置Python环境
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-
     - name: 🔔 发送开始通知
       if: ${{ github.event.inputs.send_test != 'true' }}
       id: notify-start
@@ -42,6 +37,7 @@ jobs:
           curl -s -X GET \
             "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=bell&isArchive=1" \
             --max-time 10 || echo "⚠️ 开始通知发送失败"
+        fi
 
     - name: 🔔 发送测试通知（手动触发）
       if: ${{ github.event.inputs.send_test == 'true' }}
@@ -62,126 +58,8 @@ jobs:
 
     - name: 🔄 解析和更新订阅源
       id: update-feeds
-      run: |
-        mkdir -p feeds
-        V2RAY_COUNT=0
-        CLASH_COUNT=0
-        UPDATE_STATUS="success"
-        ERROR_MSG=""
-        echo "🔍 获取源项目README..."
-        README_URL="https://raw.githubusercontent.com/free-clash-v2ray/free-clash-v2ray.github.io/main/README.md"
-        README_CONTENT=$(curl -s -L "$README_URL" --max-time 30 2>/dev/null || echo "")
-
-        if [ -z "$README_CONTENT" ]; then
-          echo "⚠️ 无法获取README，使用备用链接"
-          V2RAY_URL="https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"
-          CLASH_URL="https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.yaml"
-        else
-          echo "🔍 提取V2Ray链接..."
-          V2RAY_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.txt" | grep "free-clash-v2ray" || true)
-          V2RAY_URL=$(echo "$V2RAY_LINKS" | awk -F'/' '
-            {
-              match($NF, /^([0-9]+)-([0-9]{8})\.txt/, ms)
-              if (ms[2] != "") print ms[2], $0
-              else print "00000000", $0
-            }' | sort -r | head -n1 | cut -d" " -f2)
-          [ -z "$V2RAY_URL" ] && V2RAY_URL=$(echo "$V2RAY_LINKS" | head -n1)
-          echo "🔍 提取Clash链接..."
-          CLASH_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.yaml" | grep "free-clash-v2ray" || true)
-          CLASH_URL=$(echo "$CLASH_LINKS" | awk -F'/' '
-            {
-              match($NF, /^([0-9]+)-([0-9]{8})\.yaml/, ms)
-              if (ms[2] != "") print ms[2], $0
-              else print "00000000", $0
-            }' | sort -r | head -n1 | cut -d" " -f2)
-          [ -z "$CLASH_URL" ] && CLASH_URL=$(echo "$CLASH_LINKS" | head -n1)
-        fi
-
-        V2RAY_URL=${V2RAY_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"}
-        CLASH_URL=${CLASH_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.yaml"}
-        echo "✅ 提取结果:"
-        echo "V2Ray: $V2RAY_URL"
-        echo "Clash: $CLASH_URL"
-
-        echo "⬇️ 下载V2Ray订阅源..."
-        if curl -s -L "$V2RAY_URL" -o feeds/v2ray-latest.txt --max-time 30; then
-          V2RAY_COUNT=$(wc -l < feeds/v2ray-latest.txt 2>/dev/null || echo 0)
-          echo "✅ V2Ray下载成功，行数: $V2RAY_COUNT"
-        else
-          echo "❌ V2Ray下载失败，使用空文件"
-          echo "# V2Ray订阅暂时不可用" > feeds/v2ray-latest.txt
-          UPDATE_STATUS="partial_failure"
-          ERROR_MSG="${ERROR_MSG}V2Ray下载失败; "
-        fi
-
-        echo "⬇️ 下载Clash订阅源..."
-        if curl -s -L "$CLASH_URL" -o feeds/clash-latest.yaml --max-time 30; then
-          CLASH_COUNT=$(wc -l < feeds/clash-latest.yaml 2>/dev/null || echo 0)
-          echo "✅ Clash下载成功，行数: $CLASH_COUNT"
-        else
-          echo "❌ Clash下载失败，使用空文件"
-          echo "# Clash订阅暂时不可用" > feeds/clash-latest.yaml
-          UPDATE_STATUS="partial_failure"
-          ERROR_MSG="${ERROR_MSG}Clash下载失败; "
-        fi
-
-        echo "📄 创建状态页面..."
-        cat > feeds/index.html <<EOF
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>订阅代理服务</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .card { background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 10px; }
-        .url { background: white; padding: 10px; border-radius: 5px; font-family: monospace; }
-        .success { color: #28a745; }
-        .warning { color: #ffc107; }
-        .error { color: #dc3545; }
-    </style>
-</head>
-<body>
-    <h1>📡 订阅代理服务</h1>
-    <p>自动同步最新的订阅源，提供永久访问链接。</p>
-    <div class="card">
-        <h2>📊 更新状态</h2>
-        <p class="success">✅ 最后更新: $(date -u +'%Y-%m-%d %H:%M:%S UTC')</p>
-        <p>V2Ray订阅: $V2RAY_COUNT 行</p>
-        <p>Clash订阅: $CLASH_COUNT 行</p>
-    </div>
-    <div class="card">
-        <h2>V2Ray订阅</h2>
-        <p>永久链接:</p>
-        <div class="url">https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/v2ray-latest.txt</div>
-    </div>
-    <div class="card">
-        <h2>Clash订阅</h2>
-        <p>永久链接:</p>
-        <div class="url">https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/clash-latest.yaml</div>
-    </div>
-    <hr>
-    <p>源项目: <a href="https://kkgithub.com/free-clash-v2ray/free-clash-v2ray.github.io">free-clash-v2ray.github.io</a></p>
-    <p>更新频率: 每2天自动更新</p>
-</body>
-</html>
-EOF
-
-        cat > feeds/latest_links.txt <<EOF
-V2Ray: $V2RAY_URL
-Clash: $CLASH_URL
-V2Ray lines: $V2RAY_COUNT
-Clash lines: $CLASH_COUNT
-Update time: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
-Update status: $UPDATE_STATUS
-EOF
-
-        echo "v2ray_count=$V2RAY_COUNT" >> $GITHUB_OUTPUT
-        echo "clash_count=$CLASH_COUNT" >> $GITHUB_OUTPUT
-        echo "update_status=$UPDATE_STATUS" >> $GITHUB_OUTPUT
-        echo "error_msg=$ERROR_MSG" >> $GITHUB_OUTPUT
-        echo "✅ 订阅源更新完成"
+      # 调用外部脚本执行核心逻辑
+      run: bash ./scripts/update-feeds.sh
 
     - name: 💾 提交更改
       id: commit-changes

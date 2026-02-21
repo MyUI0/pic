@@ -2,10 +2,7 @@ name: Update Subscription Feed with Bark Notifications
 
 on:
   schedule:
-    # 定时任务：每2天运行一次
     - cron: '0 0 */2 * *'
-  
-  # 手动触发选项
   workflow_dispatch:
     inputs:
       send_test:
@@ -13,24 +10,22 @@ on:
         required: false
         default: false
         type: boolean
-  
-  # 当主分支有推送时运行
   push:
     branches: [ main ]
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: 📥 检出代码
       uses: actions/checkout@v4
-      
+
     - name: 🐍 设置Python环境
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-        
+
     - name: 🔔 发送开始通知
       if: ${{ github.event.inputs.send_test != 'true' }}
       id: notify-start
@@ -47,7 +42,6 @@ jobs:
           curl -s -X GET \
             "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=bell&isArchive=1" \
             --max-time 10 || echo "⚠️ 开始通知发送失败"
-        fi
 
     - name: 🔔 发送测试通知（手动触发）
       if: ${{ github.event.inputs.send_test == 'true' }}
@@ -77,6 +71,7 @@ jobs:
         echo "🔍 获取源项目README..."
         README_URL="https://raw.githubusercontent.com/free-clash-v2ray/free-clash-v2ray.github.io/main/README.md"
         README_CONTENT=$(curl -s -L "$README_URL" --max-time 30 2>/dev/null || echo "")
+
         if [ -z "$README_CONTENT" ]; then
           echo "⚠️ 无法获取README，使用备用链接"
           V2RAY_URL="https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"
@@ -84,48 +79,30 @@ jobs:
         else
           echo "🔍 提取V2Ray链接..."
           V2RAY_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.txt" | grep "free-clash-v2ray" || true)
-          if [ -n "$V2RAY_LINKS" ]; then
-            V2RAY_URL=$(echo "$V2RAY_LINKS" | python3 -c "
-import sys, re
-links = sys.stdin.read().strip().split('\n')
-dated_links = []
-for link in links:
-    match = re.search(r'/(\d{8})\.txt', link)
-    if match:
-        date_str = match.group(1)
-        dated_links.append((date_str, link))
-if dated_links:
-    dated_links.sort(reverse=True)
-    print(dated_links[0][1])
-else:
-    print(links[0] if links else '')
-" 2>/dev/null || echo "")
-          fi
+          V2RAY_URL=$(echo "$V2RAY_LINKS" | awk -F'/' '
+            {
+              match($NF, /^([0-9]+)-([0-9]{8})\.txt/, ms)
+              if (ms[2] != "") print ms[2], $0
+              else print "00000000", $0
+            }' | sort -r | head -n1 | cut -d" " -f2)
+          [ -z "$V2RAY_URL" ] && V2RAY_URL=$(echo "$V2RAY_LINKS" | head -n1)
           echo "🔍 提取Clash链接..."
           CLASH_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.yaml" | grep "free-clash-v2ray" || true)
-          if [ -n "$CLASH_LINKS" ]; then
-            CLASH_URL=$(echo "$CLASH_LINKS" | python3 -c "
-import sys, re
-links = sys.stdin.read().strip().split('\n')
-dated_links = []
-for link in links:
-    match = re.search(r'/(\d{8})\.yaml', link)
-    if match:
-        date_str = match.group(1)
-        dated_links.append((date_str, link))
-if dated_links:
-    dated_links.sort(reverse=True)
-    print(dated_links[0][1])
-else:
-    print(links[0] if links else '')
-" 2>/dev/null || echo "")
-          fi
+          CLASH_URL=$(echo "$CLASH_LINKS" | awk -F'/' '
+            {
+              match($NF, /^([0-9]+)-([0-9]{8})\.yaml/, ms)
+              if (ms[2] != "") print ms[2], $0
+              else print "00000000", $0
+            }' | sort -r | head -n1 | cut -d" " -f2)
+          [ -z "$CLASH_URL" ] && CLASH_URL=$(echo "$CLASH_LINKS" | head -n1)
         fi
+
         V2RAY_URL=${V2RAY_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"}
         CLASH_URL=${CLASH_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.yaml"}
         echo "✅ 提取结果:"
         echo "V2Ray: $V2RAY_URL"
         echo "Clash: $CLASH_URL"
+
         echo "⬇️ 下载V2Ray订阅源..."
         if curl -s -L "$V2RAY_URL" -o feeds/v2ray-latest.txt --max-time 30; then
           V2RAY_COUNT=$(wc -l < feeds/v2ray-latest.txt 2>/dev/null || echo 0)
@@ -136,6 +113,7 @@ else:
           UPDATE_STATUS="partial_failure"
           ERROR_MSG="${ERROR_MSG}V2Ray下载失败; "
         fi
+
         echo "⬇️ 下载Clash订阅源..."
         if curl -s -L "$CLASH_URL" -o feeds/clash-latest.yaml --max-time 30; then
           CLASH_COUNT=$(wc -l < feeds/clash-latest.yaml 2>/dev/null || echo 0)
@@ -146,6 +124,7 @@ else:
           UPDATE_STATUS="partial_failure"
           ERROR_MSG="${ERROR_MSG}Clash下载失败; "
         fi
+
         echo "📄 创建状态页面..."
         cat > feeds/index.html << EOF
 <!DOCTYPE html>
@@ -166,32 +145,29 @@ else:
 <body>
     <h1>📡 订阅代理服务</h1>
     <p>自动同步最新的订阅源，提供永久访问链接。</p>
-    
     <div class="card">
         <h2>📊 更新状态</h2>
         <p class="success">✅ 最后更新: $(date -u +'%Y-%m-%d %H:%M:%S UTC')</p>
         <p>V2Ray订阅: $V2RAY_COUNT 行</p>
         <p>Clash订阅: $CLASH_COUNT 行</p>
     </div>
-    
     <div class="card">
         <h2>V2Ray订阅</h2>
         <p>永久链接:</p>
         <div class="url">https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/v2ray-latest.txt</div>
     </div>
-    
     <div class="card">
         <h2>Clash订阅</h2>
         <p>永久链接:</p>
         <div class="url">https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/clash-latest.yaml</div>
     </div>
-    
     <hr>
     <p>源项目: <a href="https://kkgithub.com/free-clash-v2ray/free-clash-v2ray.github.io">free-clash-v2ray.github.io</a></p>
     <p>更新频率: 每2天自动更新</p>
 </body>
 </html>
 EOF
+
         cat > feeds/latest_links.txt << EOF
 V2Ray: $V2RAY_URL
 Clash: $CLASH_URL
@@ -200,6 +176,7 @@ Clash lines: $CLASH_COUNT
 Update time: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
 Update status: $UPDATE_STATUS
 EOF
+
         echo "v2ray_count=$V2RAY_COUNT" >> $GITHUB_OUTPUT
         echo "clash_count=$CLASH_COUNT" >> $GITHUB_OUTPUT
         echo "update_status=$UPDATE_STATUS" >> $GITHUB_OUTPUT
@@ -222,11 +199,11 @@ EOF
           git add feeds/
           COMMIT_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
           git commit -m "🔧 自动更新订阅源 [$COMMIT_TIME]
-          
+
           • V2Ray订阅: ${{ steps.update-feeds.outputs.v2ray_count }} 行
           • Clash订阅: ${{ steps.update-feeds.outputs.clash_count }} 行
           • 更新状态: ${{ steps.update-feeds.outputs.update_status }}
-          
+
           由GitHub Actions自动执行"
           if git push origin main; then
             echo "✅ 更改提交成功"
@@ -249,7 +226,7 @@ EOF
     - name: 🔔 发送成功通知
       if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
-        echo "✅ 发送成功通知..."
+        echo "✅ 发送��功通知..."
         TITLE="✅ 订阅更新成功"
         BODY="订阅源已成功更新并部署！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         curl -s -X GET \
@@ -261,7 +238,7 @@ EOF
       run: |
         echo "⚠️ 发送部分失败通知..."
         TITLE="⚠️ 订阅部分更新"
-        BODY="订阅源部分更新！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        BODY="订阅源部分更新！\n\n📦 仓库: ${{ github.repository }}\n�� 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         curl -s -X GET \
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&badge=2&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 部分失败通知发送失败"

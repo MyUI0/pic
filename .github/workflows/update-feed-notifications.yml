@@ -23,132 +23,96 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 步骤1：检出代码
     - name: 📥 检出代码
       uses: actions/checkout@v4
       
-    # 步骤2：设置Python环境
     - name: 🐍 设置Python环境
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
         
-    # 步骤3：发送开始通知
     - name: 🔔 发送开始通知
       if: ${{ github.event.inputs.send_test != 'true' }}
       id: notify-start
       run: |
         echo "🔔 发送工作流开始通知..."
-        
-        # 检查Bark设备密钥是否配置
         if [ -z "${{ secrets.BARK_DEVICE_KEY }}" ]; then
           echo "⚠️ BARK_DEVICE_KEY未设置，跳过Bark通知"
           echo "skip_bark=true" >> $GITHUB_OUTPUT
         else
           echo "✅ Bark设备密钥已配置"
           echo "skip_bark=false" >> $GITHUB_OUTPUT
-          
           TITLE="🔄 订阅更新开始"
           BODY="开始订阅更新任务\n\n仓库: ${{ github.repository }}\n时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n触发方式: ${{ github.event_name }}"
-          
-          # 发送Bark通知
           curl -s -X GET \
             "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=bell&isArchive=1" \
             --max-time 10 || echo "⚠️ 开始通知发送失败"
         fi
-        
-    # 步骤4：发送测试通知（手动触发）
+
     - name: 🔔 发送测试通知（手动触发）
       if: ${{ github.event.inputs.send_test == 'true' }}
       run: |
         echo "🧪 发送测试通知..."
-        
         if [ -z "${{ secrets.BARK_DEVICE_KEY }}" ]; then
           echo "❌ 错误: BARK_DEVICE_KEY未设置"
           echo "请在GitHub仓库Secrets中设置BARK_DEVICE_KEY"
           exit 1
         fi
-        
         TITLE="🔔 Bark测试通知"
         BODY="这是一个测试通知，用于验证Bark配置。\n\n仓库: ${{ github.repository }}\n时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-        
         curl -s -X GET \
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=test&sound=bell&badge=1" \
           --max-time 10
-        
         echo "✅ 测试通知已发送"
         echo "请检查您的iPhone是否收到通知"
-        
-    # 步骤5：解析和更新订阅源
+
     - name: 🔄 解析和更新订阅源
       id: update-feeds
       run: |
-        # 创建订阅源目录
         mkdir -p feeds
-        
-        # 初始化变量
         V2RAY_COUNT=0
         CLASH_COUNT=0
         UPDATE_STATUS="success"
         ERROR_MSG=""
-        
-        # === 1. 获取README内容 ===
         echo "🔍 获取源项目README..."
         README_URL="https://raw.githubusercontent.com/free-clash-v2ray/free-clash-v2ray.github.io/main/README.md"
         README_CONTENT=$(curl -s -L "$README_URL" --max-time 30 2>/dev/null || echo "")
-        
         if [ -z "$README_CONTENT" ]; then
           echo "⚠️ 无法获取README，使用备用链接"
           V2RAY_URL="https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"
           CLASH_URL="https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.yaml"
         else
-          # === 2. 提取最新的V2Ray链接 ===
           echo "🔍 提取V2Ray链接..."
           V2RAY_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.txt" | grep "free-clash-v2ray" || true)
-          
           if [ -n "$V2RAY_LINKS" ]; then
-            # 提取日期最新的链接
             V2RAY_URL=$(echo "$V2RAY_LINKS" | python3 -c "
 import sys, re
-
-# 从标准输入读取所有链接
 links = sys.stdin.read().strip().split('\n')
 dated_links = []
-
 for link in links:
-    # 从文件名中提取日期，如0-20260216.txt
     match = re.search(r'/(\d{8})\.txt', link)
     if match:
         date_str = match.group(1)
         dated_links.append((date_str, link))
-
 if dated_links:
-    # 按日期降序排序（最新的在前）
     dated_links.sort(reverse=True)
-    print(dated_links[0][1])  # 输出最新的链接
+    print(dated_links[0][1])
 else:
-    # 未找到日期，使用第一个链接
     print(links[0] if links else '')
 " 2>/dev/null || echo "")
           fi
-          
-          # === 3. 提取最新的Clash链接 ===
           echo "🔍 提取Clash链接..."
           CLASH_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.yaml" | grep "free-clash-v2ray" || true)
-          
           if [ -n "$CLASH_LINKS" ]; then
             CLASH_URL=$(echo "$CLASH_LINKS" | python3 -c "
 import sys, re
-
 links = sys.stdin.read().strip().split('\n')
 dated_links = []
-
 for link in links:
     match = re.search(r'/(\d{8})\.yaml', link)
     if match:
         date_str = match.group(1)
         dated_links.append((date_str, link))
-
 if dated_links:
     dated_links.sort(reverse=True)
     print(dated_links[0][1])
@@ -157,16 +121,11 @@ else:
 " 2>/dev/null || echo "")
           fi
         fi
-        
-        # 如果未提取到链接，使用备用链接
         V2RAY_URL=${V2RAY_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"}
         CLASH_URL=${CLASH_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.yaml"}
-        
         echo "✅ 提取结果:"
         echo "V2Ray: $V2RAY_URL"
         echo "Clash: $CLASH_URL"
-        
-        # === 4. 下载订阅源 ===
         echo "⬇️ 下载V2Ray订阅源..."
         if curl -s -L "$V2RAY_URL" -o feeds/v2ray-latest.txt --max-time 30; then
           V2RAY_COUNT=$(wc -l < feeds/v2ray-latest.txt 2>/dev/null || echo 0)
@@ -177,7 +136,6 @@ else:
           UPDATE_STATUS="partial_failure"
           ERROR_MSG="${ERROR_MSG}V2Ray下载失败; "
         fi
-        
         echo "⬇️ 下载Clash订阅源..."
         if curl -s -L "$CLASH_URL" -o feeds/clash-latest.yaml --max-time 30; then
           CLASH_COUNT=$(wc -l < feeds/clash-latest.yaml 2>/dev/null || echo 0)
@@ -188,8 +146,6 @@ else:
           UPDATE_STATUS="partial_failure"
           ERROR_MSG="${ERROR_MSG}Clash下载失败; "
         fi
-        
-        # === 5. 创建状态页面 ===
         echo "📄 创建状态页面..."
         cat > feeds/index.html << EOF
 <!DOCTYPE html>
@@ -236,8 +192,6 @@ else:
 </body>
 </html>
 EOF
-        
-        # === 6. 保存链接信息 ===
         cat > feeds/latest_links.txt << EOF
 V2Ray: $V2RAY_URL
 Clash: $CLASH_URL
@@ -246,16 +200,12 @@ Clash lines: $CLASH_COUNT
 Update time: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
 Update status: $UPDATE_STATUS
 EOF
-        
-        # 输出变量供后续步骤使用
         echo "v2ray_count=$V2RAY_COUNT" >> $GITHUB_OUTPUT
         echo "clash_count=$CLASH_COUNT" >> $GITHUB_OUTPUT
         echo "update_status=$UPDATE_STATUS" >> $GITHUB_OUTPUT
         echo "error_msg=$ERROR_MSG" >> $GITHUB_OUTPUT
-        
         echo "✅ 订阅源更新完成"
-        
-    # 步骤6：提交更改
+
     - name: 💾 提交更改
       id: commit-changes
       if: always()
@@ -263,16 +213,13 @@ EOF
         echo "检查文件更改..."
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        
         HAS_CHANGES=false
-        
         if git diff --quiet feeds/; then
           echo "📭 未检测到文件更改"
           echo "has_changes=false" >> $GITHUB_OUTPUT
         else
           echo "📝 检测到更改，正在提交..."
           git add feeds/
-          
           COMMIT_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
           git commit -m "🔧 自动更新订阅源 [$COMMIT_TIME]
           
@@ -281,7 +228,6 @@ EOF
           • 更新状态: ${{ steps.update-feeds.outputs.update_status }}
           
           由GitHub Actions自动执行"
-          
           if git push origin main; then
             echo "✅ 更改提交成功"
             echo "has_changes=true" >> $GITHUB_OUTPUT
@@ -290,8 +236,7 @@ EOF
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
         fi
-        
-    # 步骤7：部署到GitHub Pages
+
     - name: 🚀 部署到GitHub Pages
       if: steps.commit-changes.outputs.has_changes == 'true'
       uses: peaceiris/actions-gh-pages@v3
@@ -300,60 +245,47 @@ EOF
         publish_dir: ./feeds
         publish_branch: gh-pages
         keep_files: true
-        
-    # 步骤8：发送成功通知
+
     - name: 🔔 发送成功通知
       if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
         echo "✅ 发送成功通知..."
-        
         TITLE="✅ 订阅更新成功"
         BODY="订阅源已成功更新并部署！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-        
         curl -s -X GET \
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=paymentsuccess&badge=1&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 成功通知发送失败"
-          
-    # 步骤9：发送部分失败通知
+
     - name: 🔔 发送部分失败通知
       if: steps.update-feeds.outputs.update_status == 'partial_failure' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
         echo "⚠️ 发送部分失败通知..."
-        
         TITLE="⚠️ 订阅部分更新"
         BODY="订阅源部分更新！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-        
         curl -s -X GET \
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&badge=2&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 部分失败通知发送失败"
-          
-    # 步骤10：发送无变化通知
+
     - name: 🔔 发送无变化通知
       if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'false' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
         echo "📭 发送无变化通知..."
-        
         TITLE="📭 无订阅更新"
         BODY="订阅检查完成，但未发现新更新。\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 当前状态:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n所有订阅源都是最新的。"
-        
         curl -s -X GET \
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=default&isArchive=1" \
           --max-time 10 || echo "⚠️ 无变化通知发送失败"
-          
-    # 步骤11：发送完全失败通知
+
     - name: 🔔 发送完全失败通知
       if: steps.update-feeds.outputs.update_status == 'failed' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
         echo "❌ 发送完全失败通知..."
-        
         TITLE="❌ 订阅更新失败"
         BODY="订阅更新完全失败！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔧 请检查:\n1. 源项目README是否可访问？\n2. 网络连接是否正常？\n3. GitHub Actions配置是否正确？"
-        
         curl -s -X GET \
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&level=critical&badge=99&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 失败通知发送失败"
-          
-    # 步骤12：工作流摘要
+
     - name: 📊 工作流摘要
       if: always()
       run: |

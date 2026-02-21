@@ -126,7 +126,7 @@ jobs:
         fi
 
         echo "📄 创建状态页面..."
-        cat > feeds/index.html << EOF
+        cat > feeds/index.html <<EOF
 <!DOCTYPE html>
 <html>
 <head>
@@ -168,7 +168,7 @@ jobs:
 </html>
 EOF
 
-        cat > feeds/latest_links.txt << EOF
+        cat > feeds/latest_links.txt <<EOF
 V2Ray: $V2RAY_URL
 Clash: $CLASH_URL
 V2Ray lines: $V2RAY_COUNT
@@ -226,7 +226,7 @@ EOF
     - name: 🔔 发送成功通知
       if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
-        echo "✅ 发送��功通知..."
+        echo "✅ 发送成功通知..."
         TITLE="✅ 订阅更新成功"
         BODY="订阅源已成功更新并部署！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         curl -s -X GET \
@@ -238,7 +238,7 @@ EOF
       run: |
         echo "⚠️ 发送部分失败通知..."
         TITLE="⚠️ 订阅部分更新"
-        BODY="订阅源部分更新！\n\n📦 仓库: ${{ github.repository }}\n�� 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        BODY="订阅源部分更新！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         curl -s -X GET \
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&badge=2&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 部分失败通知发送失败"

@@ -2,7 +2,9 @@ name: Update Subscription Feed with Bark Notifications
 
 on:
   schedule:
+    # 每2天的UTC 00:00（北京时间08:00）自动运行
     - cron: '0 0 */2 * *'
+  
   workflow_dispatch:
     inputs:
       send_test:
@@ -10,17 +12,26 @@ on:
         required: false
         default: false
         type: boolean
+  
   push:
     branches: [ main ]
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 允许工作流推送更改到仓库
+      pages: write     # 允许工作流部署到GitHub Pages
+      id-token: write  # 允许工作流获取OIDC令牌
 
     steps:
+    # 步骤1: 检出代码
     - name: 📥 检出代码
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 获取所有历史记录，以便正确执行git diff
 
+    # 步骤2: 发送开始通知（仅限自动触发）
     - name: 🔔 发送开始通知
       if: ${{ github.event.inputs.send_test != 'true' }}
       id: notify-start
@@ -39,6 +50,7 @@ jobs:
             --max-time 10 || echo "⚠️ 开始通知发送失败"
         fi
 
+    # 步骤3: 发送测试通知（手动触发时使用）
     - name: 🔔 发送测试通知（手动触发）
       if: ${{ github.event.inputs.send_test == 'true' }}
       run: |
@@ -56,54 +68,59 @@ jobs:
         echo "✅ 测试通知已发送"
         echo "请检查您的iPhone是否收到通知"
 
+    # 步骤4: 设置脚本执行权限
+    - name: 🔧 设置脚本权限
+      run: chmod +x ./scripts/update-feeds.sh
+
+    # 步骤5: 解析和更新订阅源（调用外部脚本）
     - name: 🔄 解析和更新订阅源
       id: update-feeds
-      # 调用外部脚本执行核心逻辑
       run: bash ./scripts/update-feeds.sh
 
-- name: 💾 提交更改
+    # 步骤6: 提交更改到主分支（已修复检测逻辑）
+    - name: 💾 提交更改
       id: commit-changes
-      if: always()
+      if: always()  # 无论上一步是否失败都执行，确保清理和状态更新
       run: |
-        echo “检查文件更改状态...”
-        git config --local user.email “action@github.com”
-        git config --local user.name “GitHub Action”
+        echo "检查文件更改状态..."
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
         
-        # 使用 git status 检测 feeds/ 目录下的所有变化，包括未跟踪的新文件
-        FEEDS_CHANGES=$(git status -s feeds/ 2>/dev/null || echo “”)
+        # 使用 git status 检查 feeds/ 目录下的文件状态（包括未跟踪的新文件）
+        FEEDS_CHANGES=$(git status -s feeds/ 2>/dev/null || echo "")
         
-        if [ -z “$FEEDS_CHANGES” ]; then
-          echo “📭 未检测到 feeds/ 目录下的文件更改（或 feeds/ 目录不存在）。”
-          echo “has_changes=false” >> $GITHUB_OUTPUT
+        if [ -z "$FEEDS_CHANGES" ]; then
+          echo "📭 未检测到 feeds/ 目录下的文件更改（或 feeds/ 目录不存在）。"
+          echo "has_changes=false" >> $GITHUB_OUTPUT
         else
-          echo “📝 检测到更改，正在提交...”
-          echo “变动的文件列表：”
-          echo “$FEEDS_CHANGES”
+          echo "📝 检测到更改，正在提交..."
+          echo "变动的文件列表："
+          echo "$FEEDS_CHANGES"
           
-          # 强制添加所有文件，确保即使被 .gitignore 忽略也能被提交
+          # 强制添加 feeds/ 目录下的所有文件（包括新文件和修改的文件）
           git add -f feeds/
           
-          COMMIT_TIME=$(date -u +‘%Y-%m-%d %H:%M:%S UTC’)
-          git commit -m “🔧 自动更新订阅源 [$COMMIT_TIME]
+          COMMIT_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          git commit -m "🔧 自动更新订阅源 [$COMMIT_TIME]
 
           • V2Ray订阅: ${{ steps.update-feeds.outputs.v2ray_count }} 行
           • Clash订阅: ${{ steps.update-feeds.outputs.clash_count }} 行
           • 更新状态: ${{ steps.update-feeds.outputs.update_status }}
 
-          由GitHub Actions自动执行”
+          由GitHub Actions自动执行"
           
           if git push origin main; then
-            echo “✅ 更改提交成功”
-            echo “has_changes=true” >> $GITHUB_OUTPUT
+            echo "✅ 更改提交成功"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
           else
-            echo “❌ 提交到 main 分支失败”
-            echo “has_changes=false” >> $GITHUB_OUTPUT
-            # 让步骤失败，以便在 Actions 日志中看到明确的错误
+            echo "❌ 提交到 main 分支失败"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            # 这里可以让步骤失败，以便在 Actions 中看到红色错误提示
             exit 1
           fi
         fi
 
-        
+    # 步骤7: 部署到GitHub Pages（仅在检测到更改时执行）
     - name: 🚀 部署到GitHub Pages
       if: steps.commit-changes.outputs.has_changes == 'true'
       uses: peaceiris/actions-gh-pages@v3
@@ -112,7 +129,9 @@ jobs:
         publish_dir: ./feeds
         publish_branch: gh-pages
         keep_files: true
+        force_orphan: true  # 确保gh-pages分支只包含feeds目录内容
 
+    # 步骤8: 发送成功通知
     - name: 🔔 发送成功通知
       if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
@@ -120,9 +139,10 @@ jobs:
         TITLE="✅ 订阅更新成功"
         BODY="订阅源已成功更新并部署！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=paymentsuccess&badge=1&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=paymentsuccess&badge=1&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 成功通知发送失败"
 
+    # 步骤9: 发送部分失败通知
     - name: 🔔 发送部分失败通知
       if: steps.update-feeds.outputs.update_status == 'partial_failure' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
@@ -130,9 +150,10 @@ jobs:
         TITLE="⚠️ 订阅部分更新"
         BODY="订阅源部分更新！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&badge=2&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&badge=2&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 部分失败通知发送失败"
 
+    # 步骤10: 发送无变化通知
     - name: 🔔 发送无变化通知
       if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'false' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
@@ -143,6 +164,7 @@ jobs:
           "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=default&isArchive=1" \
           --max-time 10 || echo "⚠️ 无变化通知发送失败"
 
+    # 步骤11: 发送完全失败通知
     - name: 🔔 发送完全失败通知
       if: steps.update-feeds.outputs.update_status == 'failed' && steps.notify-start.outputs.skip_bark == 'false'
       run: |
@@ -150,15 +172,18 @@ jobs:
         TITLE="❌ 订阅更新失败"
         BODY="订阅更新完全失败！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔧 请检查:\n1. 源项目README是否可访问？\n2. 网络连接是否正常？\n3. GitHub Actions配置是否正确？"
         curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&level=critical&badge=99&isArchive=1&url=https://kkgithub.com/${{ github.repository }}/actions" \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&level=critical&badge=99&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
           --max-time 10 || echo "⚠️ 失败通知发送失败"
 
+    # 步骤12: 工作流执行摘要（无论成功与否都显示）
     - name: 📊 工作流摘要
       if: always()
       run: |
         echo "=== 工作流执行摘要 ==="
         echo "仓库: ${{ github.repository }}"
         echo "触发方式: ${{ github.event_name }}"
+        echo "运行ID: ${{ github.run_id }}"
+        echo "运行序号: ${{ github.run_number }}"
         echo "开始时间: ${{ steps.notify-start.outputs.start_time || 'N/A' }}"
         echo "结束时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
         echo ""
@@ -170,7 +195,7 @@ jobs:
         echo "💾 文件更改: ${{ steps.commit-changes.outputs.has_changes || 'false' }}"
         echo "🚀 Pages部署: ${{ steps.commit-changes.outputs.has_changes == 'true' && '已触发' || '未触发' }}"
         echo ""
-        echo "🔔 Bark通知:"
+        echo "🔔 Bark通知状态:"
         echo "• 设备密钥: ${{ secrets.BARK_DEVICE_KEY && '已配置' || '未配置' }}"
         echo "• 跳过通知: ${{ steps.notify-start.outputs.skip_bark || 'false' }}"
         echo ""

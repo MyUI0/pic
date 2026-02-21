@@ -61,37 +61,49 @@ jobs:
       # 调用外部脚本执行核心逻辑
       run: bash ./scripts/update-feeds.sh
 
-    - name: 💾 提交更改
+- name: 💾 提交更改
       id: commit-changes
       if: always()
       run: |
-        echo "检查文件更改..."
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        HAS_CHANGES=false
-        if git diff --quiet feeds/; then
-          echo "📭 未检测到文件更改"
-          echo "has_changes=false" >> $GITHUB_OUTPUT
+        echo “检查文件更改状态...”
+        git config --local user.email “action@github.com”
+        git config --local user.name “GitHub Action”
+        
+        # 使用 git status 检测 feeds/ 目录下的所有变化，包括未跟踪的新文件
+        FEEDS_CHANGES=$(git status -s feeds/ 2>/dev/null || echo “”)
+        
+        if [ -z “$FEEDS_CHANGES” ]; then
+          echo “📭 未检测到 feeds/ 目录下的文件更改（或 feeds/ 目录不存在）。”
+          echo “has_changes=false” >> $GITHUB_OUTPUT
         else
-          echo "📝 检测到更改，正在提交..."
-          git add feeds/
-          COMMIT_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
-          git commit -m "🔧 自动更新订阅源 [$COMMIT_TIME]
+          echo “📝 检测到更改，正在提交...”
+          echo “变动的文件列表：”
+          echo “$FEEDS_CHANGES”
+          
+          # 强制添加所有文件，确保即使被 .gitignore 忽略也能被提交
+          git add -f feeds/
+          
+          COMMIT_TIME=$(date -u +‘%Y-%m-%d %H:%M:%S UTC’)
+          git commit -m “🔧 自动更新订阅源 [$COMMIT_TIME]
 
           • V2Ray订阅: ${{ steps.update-feeds.outputs.v2ray_count }} 行
           • Clash订阅: ${{ steps.update-feeds.outputs.clash_count }} 行
           • 更新状态: ${{ steps.update-feeds.outputs.update_status }}
 
-          由GitHub Actions自动执行"
+          由GitHub Actions自动执行”
+          
           if git push origin main; then
-            echo "✅ 更改提交成功"
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo “✅ 更改提交成功”
+            echo “has_changes=true” >> $GITHUB_OUTPUT
           else
-            echo "❌ 提交失败"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo “❌ 提交到 main 分支失败”
+            echo “has_changes=false” >> $GITHUB_OUTPUT
+            # 让步骤失败，以便在 Actions 日志中看到明确的错误
+            exit 1
           fi
         fi
 
+        
     - name: 🚀 部署到GitHub Pages
       if: steps.commit-changes.outputs.has_changes == 'true'
       uses: peaceiris/actions-gh-pages@v3

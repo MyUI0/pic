@@ -78,27 +78,29 @@ jobs:
       run: bash ./scripts/update-feeds.sh
 
     # 步骤6: 提交更改到主分支（已修复检测逻辑）
-    - name: 💾 提交更改
+    - name: 💾 提交更改（精确检测内容变化）
       id: commit-changes
-      if: always()  # 无论上一步是否失败都执行，确保清理和状态更新
+      if: always()
       run: |
-        echo "检查文件更改状态..."
+        echo "🔍 精确检查文件内容更改..."
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         
-        # 使用 git status 检查 feeds/ 目录下的文件状态（包括未跟踪的新文件）
-        FEEDS_CHANGES=$(git status -s feeds/ 2>/dev/null || echo "")
+        # 1. 强制将feeds目录下的所有文件添加到Git暂存区
+        # 这确保了新创建的目录和文件也能被追踪到
+        git add -f feeds/
         
-        if [ -z "$FEEDS_CHANGES" ]; then
-          echo "📭 未检测到 feeds/ 目录下的文件更改（或 feeds/ 目录不存在）。"
+        # 2. 检查暂存区（stage）与仓库中上一次提交（HEAD）之间的实际差异
+        # `--quiet` 选项表示：有差异时返回非零值，无差异时返回0
+        if git diff --cached --quiet -- feeds/; then
+          echo "📭 未检测到 feeds/ 目录下的实质性内容更改。"
+          # 将暂存区的更改清空，避免提交无意义的元数据变化
+          git reset HEAD feeds/ > /dev/null 2>&1
           echo "has_changes=false" >> $GITHUB_OUTPUT
         else
-          echo "📝 检测到更改，正在提交..."
-          echo "变动的文件列表："
-          echo "$FEEDS_CHANGES"
-          
-          # 强制添加 feeds/ 目录下的所有文件（包括新文件和修改的文件）
-          git add -f feeds/
+          echo "📝 检测到实质性内容更改，正在提交..."
+          echo "变更摘要："
+          git diff --cached --stat -- feeds/
           
           COMMIT_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
           git commit -m "🔧 自动更新订阅源 [$COMMIT_TIME]
@@ -115,7 +117,6 @@ jobs:
           else
             echo "❌ 提交到 main 分支失败"
             echo "has_changes=false" >> $GITHUB_OUTPUT
-            # 这里可以让步骤失败，以便在 Actions 中看到红色错误提示
             exit 1
           fi
         fi

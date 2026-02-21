@@ -1,1 +1,360 @@
-name: Update Feed Notifications\n\non:\n  workflow_dispatch:\n    inputs:\n      notify:\n        description: 'Notify for update feed'\n        required: true\n        type: string\n  push:\n    branches:\n      - main\n\njobs:\n  notify:\n    runs-on: ubuntu-latest\n    steps:\n      - name: Checkout repository\n        uses: actions/checkout@v2\n\n      - name: Check if notification is needed\n        id: check-notification\n        run: |\n          if [ '${{ github.event.inputs.notify }}' != 'yes' ]; then\n            echo 'No notification needed.';\n            exit 0;\n          fi\n\n      - name: Set Permissions\n        run: |\n          if [ -z '${{ secrets.PUSH_PERMISSIONS }}' ]; then\n            echo 'Push permissions are not configured, skipping relevant steps.';\n            exit 0;\n          fi\n\n      - name: Send Notification\n        run: |\n          echo 'Sending notification...';\n          # Add your notification logic here\n      ",
+name: Update Subscription Feed with Bark Notifications
+
+on:
+  # 每两天运行一次（UTC时间0点）
+  schedule:
+    - cron: '0 0 */2 * *'
+  # 支持手动触发
+  workflow_dispatch:
+    inputs:
+      send_test:
+        description: '发送测试通知'
+        required: false
+        default: false
+        type: boolean
+  # 代码推送时触发测试
+  push:
+    branches: [ main ]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 检出代码
+      uses: actions/checkout@v4
+      
+    - name: 🐍 设置Python环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: 🔔 发送开始通知
+      if: ${{ github.event.inputs.send_test != 'true' }}
+      id: notify-start
+      run: |
+        echo "🔔 发送工作流开始通知..."
+        
+        # 检查Bark设备密钥
+        if [ -z "${{ secrets.BARK_DEVICE_KEY }}" ]; then
+          echo "⚠️  BARK_DEVICE_KEY未设置，跳过Bark通知"
+          echo "skip_bark=true" >> $GITHUB_OUTPUT
+        else
+          echo "✅ Bark设备密钥已配置"
+          echo "skip_bark=false" >> $GITHUB_OUTPUT
+          
+          # 发送开始通知
+          TITLE="🔄 订阅源更新开始"
+          BODY="开始执行订阅源更新任务\n\n仓库: ${{ github.repository }}\n时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n触发方式: ${{ github.event_name }}"
+          
+          curl -s -X GET \
+            "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=bell&isArchive=1" \
+            --max-time 10 || echo "⚠️  开始通知发送失败"
+        fi
+        
+    - name: 🔔 发送测试通知（手动触发）
+      if: ${{ github.event.inputs.send_test == 'true' }}
+      run: |
+        echo "🧪 发送测试通知..."
+        
+        if [ -z "${{ secrets.BARK_DEVICE_KEY }}" ]; then
+          echo "❌ 错误: BARK_DEVICE_KEY未设置"
+          echo "请在GitHub仓库Settings → Secrets中设置BARK_DEVICE_KEY"
+          exit 1
+        fi
+        
+        TITLE="🔔 Bark通知测试"
+        BODY="这是一条测试通知，用于验证Bark配置是否正确。\n\n仓库: ${{ github.repository }}\n时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+        
+        curl -s -X GET \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=test&sound=bell&badge=1" \
+          --max-time 10
+        
+        echo "✅ 测试通知已发送"
+        echo "请检查您的iPhone是否收到通知"
+        
+    - name: 🔄 解析并更新订阅源
+      id: update-feeds
+      run: |
+        # 创建feeds目录
+        mkdir -p feeds
+        
+        # 初始化变量
+        V2RAY_COUNT=0
+        CLASH_COUNT=0
+        UPDATE_STATUS="success"
+        ERROR_MSG=""
+        
+        # === 1. 获取README内容 ===
+        echo "🔍 正在获取源项目README..."
+        README_URL="https://raw.githubusercontent.com/free-clash-v2ray/free-clash-v2ray.github.io/main/README.md"
+        README_CONTENT=$(curl -s -L "$README_URL" --max-time 30 2>/dev/null || echo "")
+        
+        if [ -z "$README_CONTENT" ]; then
+          echo "⚠️  无法获取README，使用备用链接"
+          V2RAY_URL="https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"
+          CLASH_URL="https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.yaml"
+        else
+          # === 2. 提取最新V2Ray链接 ===
+          echo "🔍 提取V2Ray链接..."
+          V2RAY_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.txt" | grep "free-clash-v2ray" || true)
+          
+          if [ -n "$V2RAY_LINKS" ]; then
+            # 提取最新日期的链接
+            V2RAY_URL=$(echo "$V2RAY_LINKS" | python3 -c "
+import sys, re
+links = sys.stdin.read().strip().split('\n')
+dated_links = []
+for link in links:
+    match = re.search(r'/(\d{8})\.txt', link)
+    if match:
+        date_str = match.group(1)
+        dated_links.append((date_str, link))
+
+if dated_links:
+    dated_links.sort(reverse=True)
+    print(dated_links[0][1])
+else:
+    print(links[0] if links else '')
+" 2>/dev/null)
+          fi
+          
+          # === 3. 提取最新Clash链接 ===
+          echo "🔍 提取Clash链接..."
+          CLASH_LINKS=$(echo "$README_CONTENT" | grep -oE "https://[^\s\"]+\.yaml" | grep "free-clash-v2ray" || true)
+          
+          if [ -n "$CLASH_LINKS" ]; then
+            CLASH_URL=$(echo "$CLASH_LINKS" | python3 -c "
+import sys, re
+links = sys.stdin.read().strip().split('\n')
+dated_links = []
+for link in links:
+    match = re.search(r'/(\d{8})\.yaml', link)
+    if match:
+        date_str = match.group(1)
+        dated_links.append((date_str, link))
+
+if dated_links:
+    dated_links.sort(reverse=True)
+    print(dated_links[0][1])
+else:
+    print(links[0] if links else '')
+" 2>/dev/null)
+          fi
+        fi
+        
+        # 如果没有提取到链接，使用备用
+        V2RAY_URL=${V2RAY_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.txt"}
+        CLASH_URL=${CLASH_URL:-"https://free-clash-v2ray.github.io/uploads/2026/02/0-20260216.yaml"}
+        
+        echo "✅ 提取结果:"
+        echo "V2Ray: $V2RAY_URL"
+        echo "Clash: $CLASH_URL"
+        
+        # === 4. 下载订阅源 ===
+        echo "⬇️ 下载V2Ray订阅源..."
+        if curl -s -L "$V2RAY_URL" -o feeds/v2ray-latest.txt --max-time 30; then
+          V2RAY_COUNT=$(wc -l < feeds/v2ray-latest.txt 2>/dev/null || echo 0)
+          echo "✅ V2Ray下载成功，行数: $V2RAY_COUNT"
+        else
+          echo "❌ V2Ray下载失败，使用空文件"
+          echo "# V2Ray订阅源暂时不可用" > feeds/v2ray-latest.txt
+          UPDATE_STATUS="partial_failure"
+          ERROR_MSG="${ERROR_MSG}V2Ray下载失败; "
+        fi
+        
+        echo "⬇️ 下载Clash订阅源..."
+        if curl -s -L "$CLASH_URL" -o feeds/clash-latest.yaml --max-time 30; then
+          CLASH_COUNT=$(wc -l < feeds/clash-latest.yaml 2>/dev/null || echo 0)
+          echo "✅ Clash下载成功，行数: $CLASH_COUNT"
+        else
+          echo "❌ Clash下载失败，使用空文件"
+          echo "# Clash订阅源暂时不可用" > feeds/clash-latest.yaml
+          UPDATE_STATUS="partial_failure"
+          ERROR_MSG="${ERROR_MSG}Clash下载失败; "
+        fi
+        
+        # === 5. 创建状态页面 ===
+        echo "📄 创建状态页面..."
+        cat > feeds/index.html << EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>订阅源代理服务</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .card { background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 10px; }
+        .url { background: white; padding: 10px; border-radius: 5px; font-family: monospace; }
+        .success { color: #28a745; }
+        .warning { color: #ffc107; }
+        .error { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <h1>📡 订阅源代理服务</h1>
+    <p>自动从源项目同步最新订阅源，提供固定不变的访问链接。</p>
+    
+    <div class="card">
+        <h2>📊 更新状态</h2>
+        <p class="success">✅ 最后更新: $(date -u +'%Y-%m-%d %H:%M:%S UTC')</p>
+        <p>V2Ray订阅: $V2RAY_COUNT 行</p>
+        <p>Clash订阅: $CLASH_COUNT 行</p>
+    </div>
+    
+    <div class="card">
+        <h2>V2Ray订阅源</h2>
+        <p>固定链接：</p>
+        <div class="url">https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/v2ray-latest.txt</div>
+    </div>
+    
+    <div class="card">
+        <h2>Clash订阅源</h2>
+        <p>固定链接：</p>
+        <div class="url">https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/clash-latest.yaml</div>
+    </div>
+    
+    <hr>
+    <p>源项目: <a href="https://github.com/free-clash-v2ray/free-clash-v2ray.github.io">free-clash-v2ray.github.io</a></p>
+    <p>更新频率: 每两天自动更新</p>
+</body>
+</html>
+EOF
+        
+        # === 6. 保存链接信息 ===
+        cat > feeds/latest_links.txt << EOF
+V2Ray: $V2RAY_URL
+Clash: $CLASH_URL
+V2Ray行数: $V2RAY_COUNT
+Clash行数: $CLASH_COUNT
+更新时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+更新状态: $UPDATE_STATUS
+EOF
+        
+        # 输出变量供后续步骤使用
+        echo "v2ray_count=$V2RAY_COUNT" >> $GITHUB_OUTPUT
+        echo "clash_count=$CLASH_COUNT" >> $GITHUB_OUTPUT
+        echo "update_status=$UPDATE_STATUS" >> $GITHUB_OUTPUT
+        echo "error_msg=$ERROR_MSG" >> $GITHUB_OUTPUT
+        
+        echo "✅ 订阅源更新完成"
+        
+    - name: 💾 提交更改
+      id: commit-changes
+      if: always()
+      run: |
+        echo "检查文件变更..."
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        HAS_CHANGES=false
+        
+        if git diff --quiet feeds/; then
+          echo "📭 无文件变更"
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        else
+          echo "📝 检测到变更，提交更改..."
+          git add feeds/
+          
+          COMMIT_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          git commit -m "🔧 自动更新订阅源 [$COMMIT_TIME]
+          
+          • V2Ray订阅: ${{ steps.update-feeds.outputs.v2ray_count }}行
+          • Clash订阅: ${{ steps.update-feeds.outputs.clash_count }}行
+          • 更新状态: ${{ steps.update-feeds.outputs.update_status }}
+          
+          由GitHub Actions自动执行"
+          
+          if git push origin main; then
+            echo "✅ 变更已提交"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 提交失败"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+        fi
+        
+    - name: 🚀 部署到GitHub Pages
+      if: steps.commit-changes.outputs.has_changes == 'true'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./feeds
+        publish_branch: gh-pages
+        keep_files: true
+        
+    - name: 🔔 发送成功通知
+      if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
+      run: |
+        echo "✅ 发送成功通知..."
+        
+        TITLE="✅ 订阅源更新成功"
+        BODY="订阅源已成功更新并部署！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 更新统计:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }}行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }}行\n\n🔗 访问地址:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        
+        curl -s -X GET \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=paymentsuccess&badge=1&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
+          --max-time 10 || echo "⚠️  成功通知发送失败"
+          
+    - name: 🔔 发送部分失败通知
+      if: steps.update-feeds.outputs.update_status == 'partial_failure' && steps.commit-changes.outputs.has_changes == 'true' && steps.notify-start.outputs.skip_bark == 'false'
+      run: |
+        echo "⚠️  发送部分失败通知..."
+        
+        TITLE="⚠️ 订阅源部分更新"
+        BODY="订阅源更新部分成功！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 更新统计:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }}行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }}行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问地址:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        
+        curl -s -X GET \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&badge=2&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
+          --max-time 10 || echo "⚠️  部分失败通知发送失败"
+          
+    - name: 🔔 发送无变更通知
+      if: steps.update-feeds.outputs.update_status == 'success' && steps.commit-changes.outputs.has_changes == 'false' && steps.notify-start.outputs.skip_bark == 'false'
+      run: |
+        echo "📭 发送无变更通知..."
+        
+        TITLE="📭 订阅源无更新"
+        BODY="订阅源检查完成，但未发现新的更新。\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 当前状态:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }}行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }}行\n\n所有订阅源均为最新状态。"
+        
+        curl -s -X GET \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=default&isArchive=1" \
+          --max-time 10 || echo "⚠️  无变更通知发送失败"
+          
+    - name: 🔔 发送完全失败通知
+      if: steps.update-feeds.outputs.update_status == 'failed' && steps.notify-start.outputs.skip_bark == 'false'
+      run: |
+        echo "❌ 发送完全失败通知..."
+        
+        TITLE="❌ 订阅源更新失败"
+        BODY="订阅源更新完全失败！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔧 请检查:\n1. 源项目README是否可访问\n2. 网络连接是否正常\n3. GitHub Actions配置"
+        
+        curl -s -X GET \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$TITLE/$BODY?group=subscription-update&sound=alarm&level=critical&badge=99&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
+          --max-time 10 || echo "⚠️  失败通知发送失败"
+          
+    - name: 📊 工作流总结
+      if: always()
+      run: |
+        echo "=== 工作流执行总结 ==="
+        echo "仓库: ${{ github.repository }}"
+        echo "触发方式: ${{ github.event_name }}"
+        echo "开始时间: ${{ steps.notify-start.outputs.start_time || 'N/A' }}"
+        echo "结束时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+        echo ""
+        echo "📊 更新统计:"
+        echo "• V2Ray订阅: ${{ steps.update-feeds.outputs.v2ray_count || 0 }}行"
+        echo "• Clash订阅: ${{ steps.update-feeds.outputs.clash_count || 0 }}行"
+        echo "• 更新状态: ${{ steps.update-feeds.outputs.update_status || 'unknown' }}"
+        echo ""
+        echo "💾 文件变更: ${{ steps.commit-changes.outputs.has_changes || 'false' }}"
+        echo "🚀 Pages部署: ${{ steps.commit-changes.outputs.has_changes == 'true' && '已触发' || '未触发' }}"
+        echo ""
+        echo "🔔 Bark通知:"
+        echo "• 设备密钥: ${{ secrets.BARK_DEVICE_KEY && '已配置' || '未配置' }}"
+        echo "• 跳过通知: ${{ steps.notify-start.outputs.skip_bark || 'false' }}"
+        echo ""
+        echo "🔗 您的固定订阅链接:"
+        echo "V2Ray: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/v2ray-latest.txt"
+        echo "Clash: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/clash-latest.yaml"
+        echo "状态页: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        echo "====================="

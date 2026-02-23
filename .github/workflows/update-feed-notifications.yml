@@ -46,12 +46,17 @@ jobs:
           TITLE="🔄 订阅更新开始"
           BODY="开始订阅更新任务\n\n仓库: ${{ github.repository }}\n时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n触发方式: ${{ github.event_name }}"
           
-          # 对标题和内容进行URL编码
-          ENCODED_TITLE=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TITLE'))")
-          ENCODED_BODY=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BODY'))")
-          
-          curl -s -X GET \
-            "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$ENCODED_TITLE/$ENCODED_BODY?group=subscription-update&sound=bell&isArchive=1" \
+          # 使用POST方式发送，避免URL长度限制
+          curl -s -X POST \
+            "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "title": "'"$TITLE"'",
+              "body": "'"$BODY"'",
+              "group": "subscription-update",
+              "sound": "bell",
+              "isArchive": 1
+            }' \
             --max-time 10 || echo "⚠️ 开始通知发送失败"
         fi
 
@@ -68,12 +73,17 @@ jobs:
         TITLE="🔔 Bark测试通知"
         BODY="这是一个测试通知，用于验证Bark配置。\n\n仓库: ${{ github.repository }}\n时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
         
-        # 对标题和内容进行URL编码
-        ENCODED_TITLE=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TITLE'))")
-        ENCODED_BODY=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BODY'))")
-        
-        curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$ENCODED_TITLE/$ENCODED_BODY?group=test&sound=bell&badge=1" \
+        # 使用POST方式发送测试通知
+        curl -s -X POST \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "title": "'"$TITLE"'",
+            "body": "'"$BODY"'",
+            "group": "test",
+            "sound": "bell",
+            "badge": 1
+          }' \
           --max-time 10
         echo "✅ 测试通知已发送"
         echo "请检查您的iPhone是否收到通知"
@@ -97,14 +107,11 @@ jobs:
         git config --local user.name "GitHub Action"
         
         # 1. 强制将feeds目录下的所有文件添加到Git暂存区
-        # 这确保了新创建的目录和文件也能被追踪到
         git add -f feeds/
         
         # 2. 检查暂存区（stage）与仓库中上一次提交（HEAD）之间的实际差异
-        # `--quiet` 选项表示：有差异时返回非零值，无差异时返回0
         if git diff --cached --quiet -- feeds/; then
           echo "📭 未检测到 feeds/ 目录下的实质性内容更改。"
-          # 将暂存区的更改清空，避免提交无意义的元数据变化
           git reset HEAD feeds/ > /dev/null 2>&1
           echo "has_changes=false" >> $GITHUB_OUTPUT
         else
@@ -150,12 +157,19 @@ jobs:
         TITLE="✅ 订阅更新成功"
         BODY="订阅源已成功更新并部署！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         
-        # 对标题和内容进行URL编码
-        ENCODED_TITLE=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TITLE'))")
-        ENCODED_BODY=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BODY'))")
-        
-        curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$ENCODED_TITLE/$ENCODED_BODY?group=subscription-update&sound=paymentsuccess&badge=1&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
+        # 使用POST方式发送，支持更长的内容
+        curl -s -X POST \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "title": "'"$TITLE"'",
+            "body": "'"$BODY"'",
+            "group": "subscription-update",
+            "sound": "paymentsuccess",
+            "badge": 1,
+            "isArchive": 1,
+            "url": "https://github.com/${{ github.repository }}/actions"
+          }' \
           --max-time 10 || echo "⚠️ 成功通知发送失败"
 
     # 步骤9: 发送部分失败通知
@@ -166,12 +180,18 @@ jobs:
         TITLE="⚠️ 订阅部分更新"
         BODY="订阅源部分更新！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 统计信息:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔗 访问URL:\nhttps://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
         
-        # 对标题和内容进行URL编码
-        ENCODED_TITLE=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TITLE'))")
-        ENCODED_BODY=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BODY'))")
-        
-        curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$ENCODED_TITLE/$ENCODED_BODY?group=subscription-update&sound=alarm&badge=2&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
+        curl -s -X POST \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "title": "'"$TITLE"'",
+            "body": "'"$BODY"'",
+            "group": "subscription-update",
+            "sound": "alarm",
+            "badge": 2,
+            "isArchive": 1,
+            "url": "https://github.com/${{ github.repository }}/actions"
+          }' \
           --max-time 10 || echo "⚠️ 部分失败通知发送失败"
 
     # 步骤10: 发送无变化通知
@@ -182,12 +202,16 @@ jobs:
         TITLE="📭 无订阅更新"
         BODY="订阅检查完成，但未发现新更新。\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n📊 当前状态:\n• V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }} 行\n• Clash: ${{ steps.update-feeds.outputs.clash_count }} 行\n\n所有订阅源都是最新的。"
         
-        # 对标题和内容进行URL编码
-        ENCODED_TITLE=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TITLE'))")
-        ENCODED_BODY=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BODY'))")
-        
-        curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$ENCODED_TITLE/$ENCODED_BODY?group=subscription-update&sound=default&isArchive=1" \
+        curl -s -X POST \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "title": "'"$TITLE"'",
+            "body": "'"$BODY"'",
+            "group": "subscription-update",
+            "sound": "default",
+            "isArchive": 1
+          }' \
           --max-time 10 || echo "⚠️ 无变化通知发送失败"
 
     # 步骤11: 发送完全失败通知
@@ -198,12 +222,19 @@ jobs:
         TITLE="❌ 订阅更新失败"
         BODY="订阅更新完全失败！\n\n📦 仓库: ${{ github.repository }}\n🕐 时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n❌ 错误信息:\n${{ steps.update-feeds.outputs.error_msg }}\n\n🔧 请检查:\n1. 源项目README是否可访问？\n2. 网络连接是否正常？\n3. GitHub Actions配置是否正确？"
         
-        # 对标题和内容进行URL编码
-        ENCODED_TITLE=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TITLE'))")
-        ENCODED_BODY=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BODY'))")
-        
-        curl -s -X GET \
-          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}/$ENCODED_TITLE/$ENCODED_BODY?group=subscription-update&sound=alarm&level=critical&badge=99&isArchive=1&url=https://github.com/${{ github.repository }}/actions" \
+        curl -s -X POST \
+          "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "title": "'"$TITLE"'",
+            "body": "'"$BODY"'",
+            "group": "subscription-update",
+            "sound": "alarm",
+            "level": "critical",
+            "badge": 99,
+            "isArchive": 1,
+            "url": "https://github.com/${{ github.repository }}/actions"
+          }' \
           --max-time 10 || echo "⚠️ 失败通知发送失败"
 
     # 步骤12: 工作流执行摘要（无论成功与否都显示）
@@ -215,7 +246,6 @@ jobs:
         echo "触发方式: ${{ github.event_name }}"
         echo "运行ID: ${{ github.run_id }}"
         echo "运行序号: ${{ github.run_number }}"
-        echo "开始时间: ${{ steps.notify-start.outputs.start_time || 'N/A' }}"
         echo "结束时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
         echo ""
         echo "📊 更新统计信息:"

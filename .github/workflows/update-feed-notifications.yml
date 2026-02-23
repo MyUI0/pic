@@ -1,4 +1,4 @@
-name: Update Subscription Feed with Bark Notifications
+name: Update clash Feed with Bark Notifications
 
 on:
   schedule:

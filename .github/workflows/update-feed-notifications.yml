@@ -1,46 +1,129 @@
-name: 自动更新订阅源
+name: Update Subscription Feed
+
 on:
-  # 定时执行：每小时第30分钟执行（UTC时间，可按需修改）
   schedule:
-    - cron: '30 * * * *'
-  # 手动触发（方便测试）
+    - cron: '0 0 */2 * *'
   workflow_dispatch:
+    inputs:
+      send_test:
+        description: 发送测试通知
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: [ main ]
 
 jobs:
-  update-feeds:
+  update:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 赋予提交代码的权限
+      contents: write
+      pages: write
+      id-token: write
+
     steps:
-      # 1. 拉取代码到运行环境
-      - name: 拉取仓库代码
+      - name: 📥 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # 2. 配置运行环境（安装curl等依赖）
-      - name: 配置系统环境
+      - name: 🔔 初始化通知状态
+        id: notify-init
         run: |
-          sudo apt update && sudo apt install -y curl sed
-          # 给脚本赋执行权限
+          if [ -z "${{ secrets.BARK_DEVICE_KEY }}" ]; then
+            echo "skip_bark=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_bark=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🔔 发送测试通知
+        if: github.event.inputs.send_test == 'true'
+        run: |
+          curl -s -X POST "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "title":"测试通知",
+              "body":"Bark 配置正常",
+              "group":"test",
+              "sound":"bell",
+              "icon":"https://avatars.githubusercontent.com/u/88518685?v=4&size=64"
+            }' --max-time 10
+          echo "✅ 测试通知已发送"
+
+      - name: 🔧 执行更新脚本
+        id: update-feeds
+        run: |
           chmod +x ./scripts/update-feeds.sh
+          bash ./scripts/update-feeds.sh
 
-      # 3. 执行核心更新脚本
-      - name: 运行订阅源更新脚本
-        id: update-script
-        run: ./scripts/update-feeds.sh
-
-      # 4. 提交并推送修改（仅当有真实内容变化时）
-      - name: 提交代码变更
-        if: steps.update-script.outputs.has_real_change == 'true'
+      - name: 💾 提交更改
+        id: commit-changes
+        if: always()
         run: |
-          # 配置Git用户信息
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          # 添加所有修改的文件
-          git add ./feeds/ ./logs/
-          # 提交（带时间戳）
-          git commit -m "🔧 自动更新订阅源 [${{ env.UPDATE_TIME }}]" \
-            || echo "⚠️ 无代码变更可提交"
-          # 推送代码到主分支
-          git push origin main
-        env:
-          UPDATE_TIME: ${{ github.event.head_commit.timestamp || steps.update-script.outputs.UPDATE_TIME || github.run_id }}
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -f feeds/
+          if git diff --cached --quiet -- feeds/; then
+            git reset HEAD feeds/ >/dev/null 2>&1
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            git commit -m "🔧 更新订阅源 [$(date -u +'%Y-%m-%d %H:%M:%S UTC')]"
+            git push origin main && echo "has_changes=true" >> $GITHUB_OUTPUT || echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🚀 部署 GitHub Pages
+        if: steps.commit-changes.outputs.has_changes == 'true'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./feeds
+          publish_branch: gh-pages
+          keep_files: true
+          force_orphan: true
+
+      - name: 🔔 发送最终结果通知
+        if: always() && steps.notify-init.outputs.skip_bark == 'false' && github.event.inputs.send_test != 'true'
+        run: |
+          DATE="${{ steps.update-feeds.outputs.original_date }}"
+          if [ "${{ steps.update-feeds.outputs.update_status }}" = "success" ]; then
+            if [ "${{ steps.commit-changes.outputs.has_changes }}" = "true" ]; then
+              TITLE="✅ 订阅已更新"
+              BODY="V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }}行 | Clash: ${{ steps.update-feeds.outputs.clash_count }}行\n源日期: $DATE"
+              SOUND="paymentsuccess"
+              BADGE=1
+            else
+              TITLE="📭 订阅无更新"
+              BODY="源日期: $DATE"
+              SOUND="default"
+              BADGE=0
+            fi
+          else
+            TITLE="❌ 更新失败"
+            BODY="请检查源链接"
+            SOUND="alarm"
+            BADGE=99
+          fi
+
+          curl -s -X POST "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"title\":\"$TITLE\",
+              \"body\":\"$BODY\",
+              \"group\":\"subscription-update\",
+              \"sound\":\"$SOUND\",
+              \"badge\":$BADGE,
+              \"isArchive\":1,
+              \"icon\":\"https://avatars.githubusercontent.com/u/88518685?v=4&size=64\"
+            }" --max-time 10 || true
+
+      - name: 📊 执行摘要
+        if: always()
+        run: |
+          echo "=== 执行摘要 ==="
+          echo "仓库: ${{ github.repository }}"
+          echo "V2Ray: ${{ steps.update-feeds.outputs.v2ray_count || 0 }} 行"
+          echo "Clash: ${{ steps.update-feeds.outputs.clash_count || 0 }} 行"
+          echo "源日期: ${{ steps.update-feeds.outputs.original_date || '未知' }}"
+          echo "状态: ${{ steps.update-feeds.outputs.update_status || 'unknown' }}"
+          echo "更改: ${{ steps.commit-changes.outputs.has_changes || 'false' }}"
+          echo "================"

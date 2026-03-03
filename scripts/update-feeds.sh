@@ -1,139 +1,168 @@
 #!/bin/bash
-set -euo pipefail  # 严格模式：未定义变量/管道失败均退出
-# 解决中文/特殊字符编码问题
-export LC_ALL=C.UTF-8
+set -euo pipefail
 
-# ===================== 1. 基础配置 =====================
-# 目录配置（按需修改）
-PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd")
-FEEDS_DIR="${PROJECT_ROOT}/feeds"
-LOG_DIR="${PROJECT_ROOT}/logs"
-# 源站基础配置
-BASE_URL="https://free-clash-v2ray.github.io/uploads"
-PREFIXES=(0 1 2 3 4)  # 源站的文件前缀（0-4）
-# 时间配置（UTC时间，和源站一致）
-TODAY=$(date -u +'%Y%m%d')          # 20260301
-TODAY_HUMAN=$(date -u +'%Y-%m-%d')  # 2026-03-01
-MONTH_DIR=$(date -u +'%Y/%m')       # 2026/03
-UPDATE_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+echo "🔄 开始更新订阅源..."
 
-# ===================== 2. 目录初始化 =====================
-mkdir -p "${FEEDS_DIR}" "${LOG_DIR}"
-# 清空旧内容（避免残留）
-> "${FEEDS_DIR}/v2ray-latest.txt"
-> "${FEEDS_DIR}/clash-latest.yaml"
-> "${FEEDS_DIR}/latest_links.txt"
+# 初始化变量
+V2RAY_COUNT=0
+CLASH_COUNT=0
+UPDATE_STATUS="success"
+ERROR_MSG=""
+ORIGINAL_DATE="未知"
+LAST_DATE_FILE="./feeds/last_update_date.txt"
+mkdir -p feeds
 
-# ===================== 3. 拉取订阅源（多前缀） =====================
-echo -e "\n📥 开始拉取 ${TODAY_HUMAN} 的订阅源（前缀：${PREFIXES[*]}）..."
-for prefix in "${PREFIXES[@]}"; do
-    # 拼接单个文件链接
-    v2ray_url="${BASE_URL}/${MONTH_DIR}/${prefix}-${TODAY}.txt"
-    clash_url="${BASE_URL}/${MONTH_DIR}/${prefix}-${TODAY}.yaml"
-    
-    # 拉取V2Ray文件（静默模式，失败跳过）
-    if curl -s --head --fail "${v2ray_url}" >/dev/null 2>&1; then
-        echo "✅ 拉取V2Ray[${prefix}]: ${v2ray_url}"
-        curl -s "${v2ray_url}" >> "${FEEDS_DIR}/v2ray-latest.txt"
-        # 写入链接到汇总文件
-        echo "V2Ray[${prefix}]: ${v2ray_url}" >> "${FEEDS_DIR}/latest_links.txt"
-    else
-        echo "❌ V2Ray[${prefix}]链接不存在: ${v2ray_url}"
-    fi
+# 读取上次更新的日期（用于对比）
+if [ -f "$LAST_DATE_FILE" ]; then
+    LAST_UPDATE_DATE=$(cat "$LAST_DATE_FILE")
+else
+    LAST_UPDATE_DATE="从未更新"
+fi
+echo "📜 上次更新日期: $LAST_UPDATE_DATE"
 
-    # 拉取Clash文件（静默模式，失败跳过）
-    if curl -s --head --fail "${clash_url}" >/dev/null 2>&1; then
-        echo "✅ 拉取Clash[${prefix}]: ${clash_url}"
-        curl -s "${clash_url}" >> "${FEEDS_DIR}/clash-latest.yaml"
-        # 写入链接到汇总文件
-        echo "Clash[${prefix}]: ${clash_url}" >> "${FEEDS_DIR}/latest_links.txt"
-    else
-        echo "❌ Clash[${prefix}]链接不存在: ${clash_url}"
-    fi
-done
+# 1. 获取目标README内容（增强错误处理）
+README_URL="https://raw.githubusercontent.com/free-clash-v2ray/free-clash-v2ray.github.io/main/README.md"
+echo "🌐 正在抓取README: $README_URL"
+README_CONTENT=$(curl -s -L "$README_URL" --max-time 30 --retry 2 2>/tmp/curl_error.log || "")
 
-# ===================== 4. 容错处理：当日无文件则回退昨日 =====================
-V2RAY_EMPTY=$(wc -l < "${FEEDS_DIR}/v2ray-latest.txt")
-CLASH_EMPTY=$(wc -l < "${FEEDS_DIR}/clash-latest.yaml")
-if [ "${V2RAY_EMPTY}" -eq 0 ] && [ "${CLASH_EMPTY}" -eq 0 ]; then
-    echo -e "\n⚠️ 当日(${TODAY_HUMAN})无有效文件，回退到昨日..."
-    # 重新计算昨日日期
-    YESTERDAY=$(date -u -d "yesterday" +'%Y%m%d')
-    YESTERDAY_HUMAN=$(date -u -d "yesterday" +'%Y-%m-%d')
-    YESTERDAY_MONTH=$(date -u -d "yesterday" +'%Y/%m')
-    # 重新拉取昨日文件
-    for prefix in "${PREFIXES[@]}"; do
-        v2ray_url="${BASE_URL}/${YESTERDAY_MONTH}/${prefix}-${YESTERDAY}.txt"
-        clash_url="${BASE_URL}/${YESTERDAY_MONTH}/${prefix}-${YESTERDAY}.yaml"
-        if curl -s --head --fail "${v2ray_url}" >/dev/null 2>&1; then
-            curl -s "${v2ray_url}" >> "${FEEDS_DIR}/v2ray-latest.txt"
-            echo "V2Ray[${prefix}](昨日): ${v2ray_url}" >> "${FEEDS_DIR}/latest_links.txt"
-        fi
-        if curl -s --head --fail "${clash_url}" >/dev/null 2>&1; then
-            curl -s "${clash_url}" >> "${FEEDS_DIR}/clash-latest.yaml"
-            echo "Clash[${prefix}](昨日): ${clash_url}" >> "${FEEDS_DIR}/latest_links.txt"
-        fi
-    done
-    # 更新源日期为昨日
-    TODAY_HUMAN="${YESTERDAY_HUMAN}"
+# 检查README抓取结果
+if [ -z "$README_CONTENT" ]; then
+    UPDATE_STATUS="failure"
+    ERROR_MSG+="无法获取README内容; $(cat /tmp/curl_error.log 2>/dev/null)"
+    echo "❌ README抓取失败: $ERROR_MSG"
+else
+    echo "✅ README抓取成功，内容长度: ${#README_CONTENT} 字符"
 fi
 
-# ===================== 5. 更新索引文件 & 汇总信息 =====================
-echo -e "\n📝 更新索引文件..."
-# 补充汇总文件的基础信息
-echo -e "\nSource date: ${TODAY_HUMAN}" >> "${FEEDS_DIR}/latest_links.txt"
-echo "Update time: ${UPDATE_TIME}" >> "${FEEDS_DIR}/latest_links.txt"
+# 2. 核心：提取最新链接（无硬编码）
+extract_latest_url() {
+    local content="$1" ext="$2"
+    # 精准匹配目标链接格式
+    local links=$(echo "$content" | grep -oE "https://free-clash-v2ray\.github\.io/uploads/[0-9]{4}/[0-9]{2}/[0-9]+-[0-9]{8}\.$ext" || true)
+    
+    if [ -z "$links" ]; then
+        echo ""
+        return
+    fi
 
-# 更新index.html（替换源日期和最后更新时间）
-# 先检查index.html是否存在，不存在则创建基础模板
-if [ ! -f "${FEEDS_DIR}/index.html" ]; then
-    cat > "${FEEDS_DIR}/index.html" << EOF
+    # 按日期排序取最新
+    echo "$links" | awk -F'-' '
+        {
+            date_str = substr($NF, 1, 8)
+            print date_str " " $0
+        }' | sort -r | head -n1 | cut -d" " -f2- | head -n1
+}
+
+# 获取最新链接（无默认值）
+V2RAY_URL=$( [ -n "$README_CONTENT" ] && extract_latest_url "$README_CONTENT" txt )
+CLASH_URL=$( [ -n "$README_CONTENT" ] && extract_latest_url "$README_CONTENT" yaml )
+
+# 3. 验证链接并提取日期（核心改进：无硬编码）
+extract_formatted_date() {
+    local url="$1"
+    local d=$(echo "$url" | grep -oE '[0-9]{8}' | head -n1)
+    [ -n "$d" ] && echo "${d:0:4}-${d:4:2}-${d:6:2}" || echo "未知"
+}
+
+# 处理V2Ray链接
+if [ -n "$V2RAY_URL" ]; then
+    ORIGINAL_DATE=$(extract_formatted_date "$V2RAY_URL")
+    echo "🔗 找到最新V2Ray链接: $V2RAY_URL (日期: $ORIGINAL_DATE)"
+    
+    # 下载V2Ray内容
+    if curl -s -L "$V2RAY_URL" -o feeds/v2ray-latest.txt --max-time 30 --retry 2; then
+        V2RAY_COUNT=$(wc -l < feeds/v2ray-latest.txt 2>/dev/null || 0)
+        echo "📥 V2Ray下载成功，共 $V2RAY_COUNT 行"
+    else
+        echo "# 未获取到有效V2Ray订阅源 (获取时间: $(date -u))" > feeds/v2ray-latest.txt
+        UPDATE_STATUS="partial_failure"
+        ERROR_MSG+="V2Ray内容下载失败; "
+        echo "❌ V2Ray内容下载失败"
+    fi
+else
+    echo "# 未找到最新V2Ray订阅链接 (获取时间: $(date -u))" > feeds/v2ray-latest.txt
+    UPDATE_STATUS="partial_failure"
+    ERROR_MSG+="未找到V2Ray链接; "
+    echo "❌ 未找到任何V2Ray链接"
+fi
+
+# 处理Clash链接
+if [ -n "$CLASH_URL" ]; then
+    CLASH_DATE=$(extract_formatted_date "$CLASH_URL")
+    echo "🔗 找到最新Clash链接: $CLASH_URL (日期: $CLASH_DATE)"
+    
+    # 下载Clash内容
+    if curl -s -L "$CLASH_URL" -o feeds/clash-latest.yaml --max-time 30 --retry 2; then
+        CLASH_COUNT=$(wc -l < feeds/clash-latest.yaml 2>/dev/null || 0)
+        echo "📥 Clash下载成功，共 $CLASH_COUNT 行"
+    else
+        echo "# 未获取到有效Clash订阅源 (获取时间: $(date -u))" > feeds/clash-latest.yaml
+        UPDATE_STATUS="partial_failure"
+        ERROR_MSG+="Clash内容下载失败; "
+        echo "❌ Clash内容下载失败"
+    fi
+else
+    echo "# 未找到最新Clash订阅链接 (获取时间: $(date -u))" > feeds/clash-latest.yaml
+    UPDATE_STATUS="partial_failure"
+    ERROR_MSG+="未找到Clash链接; "
+    echo "❌ 未找到任何Clash链接"
+fi
+
+# 4. 记录本次更新日期（用于下次对比）
+echo "$ORIGINAL_DATE" > "$LAST_DATE_FILE"
+
+# 5. 生成页面（保留原有功能）
+REPO_NAME="${GITHUB_REPOSITORY#*/}"
+GITHUB_OWNER="${GITHUB_REPOSITORY%%/*}"
+UPDATE_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+
+cat > feeds/index.html <<EOF
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>订阅代理服务</title>
-</head>
-<body>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>订阅代理服务</title>
+<style>
+body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:20px}
+.card{background:#f5f5f5;padding:20px;margin:20px 0;border-radius:10px}
+.url{background:white;padding:10px;border-radius:5px;font-family:monospace;overflow-x:auto}
+.update-status{color:green;font-weight:bold}
+.update-failure{color:red;font-weight:bold}
+</style>
 <h1>📡 订阅代理服务</h1>
 <div class="card">
   <h2>📊 更新状态</h2>
-  <p>✅ 最后更新: ${UPDATE_TIME}</p>
-  <p>源日期: ${TODAY_HUMAN}</p>
-  <p>V2Ray: 0 行</p>
-  <p>Clash: 0 行</p>
+  <p>✅ 最后更新: $UPDATE_TIME</p>
+  <p>上次更新日期: $LAST_UPDATE_DATE</p>
+  <p>本次源日期: $ORIGINAL_DATE</p>
+  <p>V2Ray: $V2RAY_COUNT 行</p>
+  <p>Clash: $CLASH_COUNT 行</p>
+  <p class="$([ "$UPDATE_STATUS" = "success" ] && echo "update-status" || echo "update-failure")">
+    状态: $([ "$UPDATE_STATUS" = "success" ] && echo "✅ 全部成功" || echo "❌ 部分/全部失败")
+  </p>
+  $( [ -n "$ERROR_MSG" ] && echo "<p>错误信息: $ERROR_MSG</p>" )
 </div>
-</body>
-</html>
+<div class="card">
+  <h2>V2Ray</h2><div class="url">https://$GITHUB_OWNER.github.io/$REPO_NAME/v2ray-latest.txt</div>
+  <h2>Clash</h2><div class="url">https://$GITHUB_OWNER.github.io/$REPO_NAME/clash-latest.yaml</div>
+</div>
 EOF
-else
-    # 替换已有内容
-    sed -i.bak "s/最后更新: .*/最后更新: ${UPDATE_TIME}/g" "${FEEDS_DIR}/index.html"
-    sed -i.bak "s/源日期: .*/源日期: ${TODAY_HUMAN}/g" "${FEEDS_DIR}/index.html"
-    rm -f "${FEEDS_DIR}/index.html.bak"  # 删除sed备份文件
-fi
 
-# 统计行数并更新index.html
-V2RAY_LINES=$(wc -l < "${FEEDS_DIR}/v2ray-latest.txt")
-CLASH_LINES=$(wc -l < "${FEEDS_DIR}/clash-latest.yaml")
-sed -i.bak "s/V2Ray: .*/V2Ray: ${V2RAY_LINES} 行/g" "${FEEDS_DIR}/index.html"
-sed -i.bak "s/Clash: .*/Clash: ${CLASH_LINES} 行/g" "${FEEDS_DIR}/index.html"
-rm -f "${FEEDS_DIR}/index.html.bak"
+# 记录原始链接（用于排查）
+cat > feeds/latest_links.txt <<EOF
+V2Ray原始链接: ${V2RAY_URL:-"未找到"}
+Clash原始链接: ${CLASH_URL:-"未找到"}
+源日期: $ORIGINAL_DATE
+上次更新日期: $LAST_UPDATE_DATE
+本次更新时间: $UPDATE_TIME
+错误信息: ${ERROR_MSG:-"无"}
+EOF
 
-# ===================== 6. 输出最终统计 & 标记变化 =====================
-echo -e "\n✅ 更新完成！最终统计："
-echo "├── 源日期: ${TODAY_HUMAN}"
-echo "├── 最后更新: ${UPDATE_TIME}"
-echo "├── V2Ray节点行数: ${V2RAY_LINES}"
-echo "├── Clash节点行数: ${CLASH_LINES}"
+# 输出GitHub Action变量
+echo "v2ray_count=$V2RAY_COUNT" >> "$GITHUB_OUTPUT"
+echo "clash_count=$CLASH_COUNT" >> "$GITHUB_OUTPUT"
+echo "update_status=$UPDATE_STATUS" >> "$GITHUB_OUTPUT"
+echo "error_msg=$ERROR_MSG" >> "$GITHUB_OUTPUT"
+echo "original_date=$ORIGINAL_DATE" >> "$GITHUB_OUTPUT"
+echo "last_update_date=$LAST_UPDATE_DATE" >> "$GITHUB_OUTPUT"
 
-# 标记是否有真实内容变化（供Action判断是否提交）
-if [ "${V2RAY_LINES}" -gt 0 ] || [ "${CLASH_LINES}" -gt 0 ]; then
-    echo "has_real_change=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-else
-    echo "has_real_change=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-    echo "⚠️ 无有效节点内容，本次不提交Git"
-fi
-
-# 保存日志
-echo -e "\n===== $(date -u) =====\n源日期: ${TODAY_HUMAN} | V2Ray: ${V2RAY_LINES}行 | Clash: ${CLASH_LINES}行\n" >> "${LOG_DIR}/update-feeds.log"
+echo "✅ 更新流程完成（最终状态: $UPDATE_STATUS）"

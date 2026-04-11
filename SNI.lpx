@@ -1,93 +1,27 @@
-#!name = 🔗 纯直连优化合集（修复版）
-#!desc = 修复Host-SNI不匹配问题，支持linux.do/v2ex/维基/Steam/Tumblr/HuggingFace/Discord
+#!name = 🔗 极简直连(无脚本版)
+#!desc = 纯Host映射+固定SNI，无脚本不炸
 #!icon = https://cdn.jsdelivr.net/gh/feathericons/feather/icons/link-2.png
-#!tag = Network
-#!system = iOS,iPadOS,macOS
 #!loon_version = 3.0.0
-#!version = 1.2
 
-# ==================== 关键修复：Host映射与SNI严格对应 ====================
+# 域名映射（照你之前能用的来）
 [Host]
-# 仅保留必要映射，移除冗余通配符，避免冲突
-linux.do = cdn.cloudflare.net
-v2ex.com = cdn.cloudflare.net
-wikipedia.org = cdn.cloudflare.net
-sourceforge.net = cdn.cloudflare.net
-tumblr.com = cdn.cloudflare.net
-steamcommunity.com = cdn.cloudflare.net
-huggingface.co = cdn.cloudflare.net
-discord.com = cdn.cloudflare.net
-discordapp.com = cdn.cloudflare.net
-discord.gg = cdn.cloudflare.net
-media.discordapp.net = cdn.cloudflare.net
-cdn.discordapp.com = cdn.cloudflare.net
+linux.do        = 104.21.38.15
+*.linux.do      = 104.21.38.15
+sourceforge.net = 104.18.161.229
 
-# ==================== AutoSNI脚本（修复通配符匹配逻辑） ====================
-[Script]
-AutoSNI = type=sni, script-content=
-const host = $request.sni;
-// 精确匹配优先，通配符兜底
-const exactMap = {
-    "linux.do": "cloudflare.net",
-    "v2ex.com": "cloudflare.net",
-    "wikipedia.org": "cloudflare.net",
-    "sourceforge.net": "cloudflare.net",
-    "tumblr.com": "cloudflare.net",
-    "steamcommunity.com": "cloudflare.net",
-    "huggingface.co": "cloudflare.net",
-    "discord.com": "cloudflare.net",
-    "discordapp.com": "cloudflare.net",
-    "discord.gg": "cloudflare.net",
-    "media.discordapp.net": "cloudflare.net",
-    "cdn.discordapp.com": "cloudflare.net"
-};
-const wildcardMap = {
-    "*.linux.do": "cloudflare.net",
-    "*.v2ex.com": "cloudflare.net",
-    "*.wikipedia.org": "cloudflare.net",
-    "*.sourceforge.net": "cloudflare.net",
-    "*.tumblr.com": "cloudflare.net",
-    "*.steamcommunity.com": "cloudflare.net",
-    "*.huggingface.co": "cloudflare.net",
-    "*.discord.com": "cloudflare.net",
-    "*.discordapp.com": "cloudflare.net",
-    "*.discord.gg": "cloudflare.net"
-};
-let use = exactMap[host];
-if (!use) {
-    // 通配符匹配逻辑修复
-    const parts = host.split('.');
-    if (parts.length >= 3) {
-        const wildcard = `*.${parts.slice(-2).join('.')}`;
-        use = wildcardMap[wildcard] || "cloudflare.net";
-    } else {
-        use = "cloudflare.net";
-    }
-}
-$done({ sni: use });
-
-# ==================== 规则（简化并绑定正确脚本） ====================
+# 规则：全部用 Loon 原生 sni= 写法，不写脚本
 [Rule]
-# Linux.do（核心测试目标）
-DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:AutoSNI
-DOMAIN,linux.do,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,linux.do,        DIRECT, sni=cloudflare.net
+DOMAIN-SUFFIX,sourceforge.net,  DIRECT, sni=cloudflare.net
 
-# 其他站点
-DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,tumblr.com,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,huggingface.co,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,discord.com,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,discordapp.com,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,discord.gg,DIRECT,sni=script:AutoSNI
-DOMAIN-SUFFIX,media.discordapp.net,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,v2ex.com,         DIRECT, sni=cloudflare.net
+DOMAIN-SUFFIX,wikipedia.org,    DIRECT, sni=cloudflare.net
+DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=cloudflare.net
+DOMAIN-SUFFIX,tumblr.com,       DIRECT, sni=cloudflare.net
+DOMAIN-SUFFIX,huggingface.co,   DIRECT, sni=cloudflare.net
+DOMAIN-SUFFIX,discord.com,      DIRECT, sni=cloudflare.net
 
-# ==================== 基础配置（优化DNS与TLS） ====================
 [General]
 tun = true
-sni-sniffing = true
 ipv6 = false
-dns-server = 1.1.1.1,1.0.0.1  # 更换为Cloudflare DNS，提升解析成功率
-tls-min-version = 1.3  # 强制TLS 1.3，避免兼容性问题
+dns-server = 223.5.5.5

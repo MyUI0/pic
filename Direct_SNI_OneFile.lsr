@@ -1,26 +1,37 @@
-#!name=纯直连合集·单文件版
-#!desc=内置SNI切换脚本，符合Loon官方规范，无代理
-#!author=标准合规版
+#!name=直连优化合集
+#!desc=纯DIRECT直连，SNI可切换，无代理合规使用
+#!icon=🔗
+#!author=标准规范版
 #!loon_version=3.0.0
 
 [Script]
-SNI自动切换 = type=sni, script-content=
-let map = {"BAIDU":"www.baidu.com","QQ":"www.qq.com","BILIBILI":"www.bilibili.com"}
-$done({ sni: map[$persistentStore.read("SNI")||"BAIDU"] })
+SNI选择器 = type=sni, script-content=
+const map = {
+    "BAIDU": "www.baidu.com",
+    "QQ": "www.qq.com",
+    "BILIBILI": "www.bilibili.com"
+}
+const use = $persistentStore.read("CURRENT_SNI") || "BAIDU"
+$done({ sni: map[use] })
 
 [Rule]
-DOMAIN-SUFFIX,linux.do,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,linuxdo.org,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,v2ex.com,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,wikipedia.org,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,sourceforge.net,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,sf.net,DIRECT,script=SNI自动切换
+# 常用直连站点
+DOMAIN-SUFFIX,linux.do,DIRECT,script=SNI选择器
+DOMAIN-SUFFIX,linuxdo.org,DIRECT,script=SNI选择器
+DOMAIN-SUFFIX,v2ex.com,DIRECT,script=SNI选择器
+DOMAIN-SUFFIX,wikipedia.org,DIRECT,script=SNI选择器
+DOMAIN-SUFFIX,sourceforge.net,DIRECT,script=SNI选择器
+DOMAIN-SUFFIX,sf.net,DIRECT,script=SNI选择器
+
+# GitHub 已禁用（需要时再开启）
+# DOMAIN-SUFFIX,github.com,DIRECT,script=SNI选择器
+# DOMAIN-SUFFIX,githubusercontent.com,DIRECT,script=SNI选择器
 
 [Shortcut]
-使用百度SNI = persistent-store=key:SNI,value:BAIDU
-使用QQSNI = persistent-store=key:SNI,value:QQ
-使用B站SNI = persistent-store=key:SNI,value:BILIBILI
+🔍 使用百度SNI = persistent-store=key:CURRENT_SNI,value:BAIDU
+🐧 使用QQSNI    = persistent-store=key:CURRENT_SNI,value:QQ
+📺 使用B站SNI   = persistent-store=key:CURRENT_SNI,value:BILIBILI
 
 [General]
-sni-sniffing = true
 tun = true
+sni-sniffing = true

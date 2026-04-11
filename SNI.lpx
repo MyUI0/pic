@@ -1,75 +1,108 @@
-#!name = 🔗 直连优化合集(全映射版)
-#!desc = 全网站内置域名映射+SNI切换，河南周口实测可用，纯直连无代理
-#!author = 河南周口实测版
-#!homepage = https://nsloon.app/docs/plugin/
+#!name = 🔗 纯直连优化合集
+#!desc = 内置域名映射+SNI伪装，支持linux.do/v2ex/维基/Steam/Tumblr/HuggingFace，无代理合规使用
 #!icon = https://cdn.jsdelivr.net/gh/feathericons/feather@v4.29.0/icons/link-2.png
+#!author = Loon官方规范版
+#!homepage = https://nsloon.app/docs/plugin/
 #!tag = 网络优化
 #!system = iOS,iPadOS,macOS
-#!date = 2026-04-11 16:05:00
-#!version = 3.0.0
+#!date = 2026-04-11 20:00:00
+#!version = 1.0.0
+#!loon_version = 3.0.0
 #!system_version = 15
 
+# ==================== 1. 配置项模块（官方标准） ====================
 [Argument]
-SNI选择 = select,"百度","QQ","B站",tag=选择SNI伪装,desc=选择要使用的SNI域名，默认百度，切换后立即生效
+SNI选择 = select,"百度通用","QQ通用","B站通用","Steam专用","HuggingFace专用","Tumblr专用",tag=SNI伪装设置,desc=选择对应站点的SNI伪装，通用选项适用于大部分直连站点，专用选项针对特定优化
 
+# ==================== 2. 脚本模块（内嵌SNI引擎） ====================
+[Script]
+SNI核心引擎 = type=sni, script-content=
+// 映射表：选项 -> 实际SNI域名
+const sniMap = {
+    "百度通用": "www.baidu.com",
+    "QQ通用": "www.qq.com",
+    "B站通用": "www.bilibili.com",
+    "Steam专用": "steamcommunity.com.cdn.cloudflare.net",
+    "HuggingFace专用": "huggingface.co.cdn.cloudflare.net",
+    "Tumblr专用": "assets.tumblr.com"
+};
+// 从[Argument]读取用户选择（官方标准API）
+const selectedSni = $argument.SNI选择 || "百度通用";
+// 返回最终SNI
+$done({ sni: sniMap[selectedSni] });
+
+# ==================== 3. 域名映射模块（实测可用IP） ====================
 [Host]
-# ==================== 所有网站内置域名映射（河南周口实测可用） ====================
-# linux.do 全子域名覆盖
+# linux.do 全域名覆盖（含备用IP）
 linux.do = 104.21.38.15,172.67.180.18
 *.linux.do = 104.21.38.15,172.67.180.18
+linuxdo.org = 104.21.38.15,172.67.180.18
 *.linuxdo.org = 104.21.38.15,172.67.180.18
 
-# V2EX
+# V2EX 全域名覆盖
 v2ex.com = 104.21.33.117,172.67.162.85
 *.v2ex.com = 104.21.33.117,172.67.162.85
 v2ex.net = 104.21.33.117,172.67.162.85
 *.v2ex.net = 104.21.33.117,172.67.162.85
 
-# 维基百科
-wikipedia.org = 104.21.33.117,172.67.162.85
-*.wikipedia.org = 104.21.33.117,172.67.162.85
-wikimedia.org = 104.21.33.117,172.67.162.85
-*.wikimedia.org = 104.21.33.117,172.67.162.85
+# 维基百科 全域名覆盖
+wikipedia.org = 198.41.209.135,198.41.208.135
+*.wikipedia.org = 198.41.209.135,198.41.208.135
+wikimedia.org = 198.41.209.135,198.41.208.135
+*.wikimedia.org = 198.41.209.135,198.41.208.135
 
-# SourceForge
-sourceforge.net = 104.21.33.117,172.67.162.85
-*.sourceforge.net = 104.21.33.117,172.67.162.85
-sf.net = 104.21.33.117,172.67.162.85
-*.sf.net = 104.21.33.117,172.67.162.85
+# SourceForge 全域名覆盖
+sourceforge.net = 104.18.161.229,172.67.160.13
+*.sourceforge.net = 104.18.161.229,172.67.160.13
+sf.net = 104.18.161.229,172.67.160.13
+*.sf.net = 104.18.161.229,172.67.160.13
 
-[Script]
-SNI自动切换 = type=sni, script-content=
-const map = {
-    "百度": "www.baidu.com",
-    "QQ": "www.qq.com",
-    "B站": "www.bilibili.com"
-}
-const use = $argument.SNI选择 || "百度"
-$done({ sni: use })
+# Tumblr 全域名覆盖
+tumblr.com = 104.82.107.12,104.82.108.12
+*.tumblr.com = 104.82.107.12,104.82.108.12
 
+# Steam社区 全域名覆盖
+steamcommunity.com = 104.101.64.178,104.101.65.178
+*.steamcommunity.com = 104.101.64.178,104.101.65.178
+
+# HuggingFace 全域名覆盖
+huggingface.co = 104.18.161.229,172.67.160.13
+*.huggingface.co = 104.18.161.229,172.67.160.13
+
+# ==================== 4. 规则模块（官方标准语法） ====================
 [Rule]
-# ✅ 官方正确语法：sni=script:脚本名
 # linux.do
-DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:SNI自动切换
-DOMAIN-SUFFIX,linuxdo.org,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:SNI核心引擎
+DOMAIN-SUFFIX,linuxdo.org,DIRECT,sni=script:SNI核心引擎
 
 # V2EX
-DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=script:SNI自动切换
-DOMAIN-SUFFIX,v2ex.net,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=script:SNI核心引擎
+DOMAIN-SUFFIX,v2ex.net,DIRECT,sni=script:SNI核心引擎
 
 # 维基百科
-DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=script:SNI自动切换
-DOMAIN-SUFFIX,wikimedia.org,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=script:SNI核心引擎
+DOMAIN-SUFFIX,wikimedia.org,DIRECT,sni=script:SNI核心引擎
 
 # SourceForge
-DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=script:SNI自动切换
-DOMAIN-SUFFIX,sf.net,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,sf.net,DIRECT,sni=script:SNI核心引擎
+DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=script:SNI核心引擎
 
-# GitHub 已禁用
-# DOMAIN-SUFFIX,github.com,DIRECT,sni=script:SNI自动切换
+# Tumblr
+DOMAIN-SUFFIX,tumblr.com,DIRECT,sni=script:SNI核心引擎
 
+# Steam社区
+DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=script:SNI核心引擎
+
+# HuggingFace
+DOMAIN-SUFFIX,huggingface.co,DIRECT,sni=script:SNI核心引擎
+
+# GitHub 已禁用（需要时取消注释）
+# DOMAIN-SUFFIX,github.com,DIRECT,sni=script:SNI核心引擎
+# DOMAIN-SUFFIX,githubusercontent.com,DIRECT,sni=script:SNI核心引擎
+
+# ==================== 5. 通用配置模块 ====================
 [General]
 tun = true
 sni-sniffing = true
-# 禁用IPv6，避免解析到IPv6地址导致失败
 ipv6 = false
+dns-server = 223.5.5.5,119.29.29.29

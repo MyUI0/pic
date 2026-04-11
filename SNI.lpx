@@ -1,106 +1,119 @@
-#!name = 🔗 纯直连优化合集
-#!desc = 内置域名映射+SNI伪装，支持linux.do/v2ex/维基/Steam/Tumblr/HuggingFace，无代理合规使用
-#!icon = https://cdn.jsdelivr.net/gh/feathericons/feather@v4.29.0/icons/link-2.png
-#!author = Loon官方规范版
-#!homepage = https://nsloon.app/docs/plugin/
-#!tag = 网络优化
+#!name = 🔗 纯直连优化合集（含Discord）
+#!desc = 内置域名映射+自动SNI伪装，支持linux.do/v2ex/维基/Steam/Tumblr/HuggingFace/Discord，无代理合规使用
+#!icon = https://cdn.jsdelivr.net/gh/feathericons/feather/icons/link-2.png
+#!tag = Network
 #!system = iOS,iPadOS,macOS
-#!date = 2026-04-11 20:00:00
-#!version = 1.0.0
 #!loon_version = 3.0.0
-#!system_version = 15
+#!version = 1.1
 
-# ==================== 1. 配置项模块（官方标准） ====================
-[Argument]
-SNI选择 = select,"百度通用","QQ通用","B站通用","Steam专用","HuggingFace专用","Tumblr专用",tag=SNI伪装设置,desc=选择对应站点的SNI伪装，通用选项适用于大部分直连站点，专用选项针对特定优化
-
-# ==================== 2. 脚本模块（内嵌SNI引擎） ====================
-[Script]
-SNI核心引擎 = type=sni, script-content=
-// 映射表：选项 -> 实际SNI域名
-const sniMap = {
-    "百度通用": "www.baidu.com",
-    "QQ通用": "www.qq.com",
-    "B站通用": "www.bilibili.com",
-    "Steam专用": "steamcommunity.com.cdn.cloudflare.net",
-    "HuggingFace专用": "huggingface.co.cdn.cloudflare.net",
-    "Tumblr专用": "assets.tumblr.com"
-};
-// 从[Argument]读取用户选择（官方标准API）
-const selectedSni = $argument.SNI选择 || "百度通用";
-// 返回最终SNI
-$done({ sni: sniMap[selectedSni] });
-
-# ==================== 3. 域名映射模块（实测可用IP） ====================
+# ==================== Host 域名映射（照抄Accesser可靠写法） ====================
 [Host]
-# linux.do 全域名覆盖（含备用IP）
-linux.do = 104.21.38.15,172.67.180.18
-*.linux.do = 104.21.38.15,172.67.180.18
-linuxdo.org = 104.21.38.15,172.67.180.18
-*.linuxdo.org = 104.21.38.15,172.67.180.18
-
-# V2EX 全域名覆盖
-v2ex.com = 104.21.33.117,172.67.162.85
-*.v2ex.com = 104.21.33.117,172.67.162.85
-v2ex.net = 104.21.33.117,172.67.162.85
-*.v2ex.net = 104.21.33.117,172.67.162.85
-
-# 维基百科 全域名覆盖
-wikipedia.org = 198.41.209.135,198.41.208.135
-*.wikipedia.org = 198.41.209.135,198.41.208.135
-wikimedia.org = 198.41.209.135,198.41.208.135
-*.wikimedia.org = 198.41.209.135,198.41.208.135
-
-# SourceForge 全域名覆盖
-sourceforge.net = 104.18.161.229,172.67.160.13
-*.sourceforge.net = 104.18.161.229,172.67.160.13
-sf.net = 104.18.161.229,172.67.160.13
-*.sf.net = 104.18.161.229,172.67.160.13
-
-# Tumblr 全域名覆盖
-tumblr.com = 104.82.107.12,104.82.108.12
-*.tumblr.com = 104.82.107.12,104.82.108.12
-
-# Steam社区 全域名覆盖
-steamcommunity.com = 104.101.64.178,104.101.65.178
-*.steamcommunity.com = 104.101.64.178,104.101.65.178
-
-# HuggingFace 全域名覆盖
-huggingface.co = 104.18.161.229,172.67.160.13
-*.huggingface.co = 104.18.161.229,172.67.160.13
-
-# ==================== 4. 规则模块（官方标准语法） ====================
-[Rule]
 # linux.do
-DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:SNI核心引擎
-DOMAIN-SUFFIX,linuxdo.org,DIRECT,sni=script:SNI核心引擎
+linux.do = cdn.cloudflare.net
+*.linux.do = cdn.cloudflare.net
+linuxdo.org = cdn.cloudflare.net
+*.linuxdo.org = cdn.cloudflare.net
 
 # V2EX
-DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=script:SNI核心引擎
-DOMAIN-SUFFIX,v2ex.net,DIRECT,sni=script:SNI核心引擎
+v2ex.com = cdn.cloudflare.net
+*.v2ex.com = cdn.cloudflare.net
+v2ex.net = cdn.cloudflare.net
+*.v2ex.net = cdn.cloudflare.net
 
 # 维基百科
-DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=script:SNI核心引擎
-DOMAIN-SUFFIX,wikimedia.org,DIRECT,sni=script:SNI核心引擎
+wikipedia.org = cdn.cloudflare.net
+*.wikipedia.org = cdn.cloudflare.net
+wikimedia.org = cdn.cloudflare.net
+*.wikimedia.org = cdn.cloudflare.net
 
 # SourceForge
-DOMAIN-SUFFIX,sf.net,DIRECT,sni=script:SNI核心引擎
-DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=script:SNI核心引擎
+sourceforge.net = cdn.cloudflare.net
+*.sourceforge.net = cdn.cloudflare.net
+sf.net = cdn.cloudflare.net
+*.sf.net = cdn.cloudflare.net
 
 # Tumblr
-DOMAIN-SUFFIX,tumblr.com,DIRECT,sni=script:SNI核心引擎
+tumblr.com = cdn.cloudflare.net
+*.tumblr.com = cdn.cloudflare.net
 
 # Steam社区
-DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=script:SNI核心引擎
+steamcommunity.com = cdn.cloudflare.net
+*.steamcommunity.com = cdn.cloudflare.net
 
 # HuggingFace
-DOMAIN-SUFFIX,huggingface.co,DIRECT,sni=script:SNI核心引擎
+huggingface.co = cdn.cloudflare.net
+*.huggingface.co = cdn.cloudflare.net
 
-# GitHub 已禁用（需要时取消注释）
-# DOMAIN-SUFFIX,github.com,DIRECT,sni=script:SNI核心引擎
-# DOMAIN-SUFFIX,githubusercontent.com,DIRECT,sni=script:SNI核心引擎
+# Discord（全域名覆盖）
+discord.com = cdn.cloudflare.net
+*.discord.com = cdn.cloudflare.net
+discordapp.com = cdn.cloudflare.net
+*.discordapp.com = cdn.cloudflare.net
+discord.gg = cdn.cloudflare.net
+*.discord.gg = cdn.cloudflare.net
+media.discordapp.net = cdn.cloudflare.net
+*.media.discordapp.net = cdn.cloudflare.net
+cdn.discordapp.com = cdn.cloudflare.net
+*.cdn.discordapp.com = cdn.cloudflare.net
 
-# ==================== 5. 通用配置模块 ====================
+# ==================== 全自动SNI脚本（Loon官方标准type=sni） ====================
+[Script]
+AutoSNI = type=sni, script-content=
+const host = $request.sni;
+const map = {
+    "linux.do": "cloudflare.net",
+    "*.linux.do": "cloudflare.net",
+    "v2ex.com": "cloudflare.net",
+    "*.v2ex.com": "cloudflare.net",
+    "wikipedia.org": "cloudflare.net",
+    "*.wikipedia.org": "cloudflare.net",
+    "sourceforge.net": "cloudflare.net",
+    "steamcommunity.com": "cloudflare.net",
+    "tumblr.com": "cloudflare.net",
+    "huggingface.co": "cloudflare.net",
+    "discord.com": "cloudflare.net",
+    "*.discord.com": "cloudflare.net",
+    "discordapp.com": "cloudflare.net",
+    "*.discordapp.com": "cloudflare.net",
+    "discord.gg": "cloudflare.net"
+};
+let use = map[host] || "cloudflare.net";
+$done({ sni: use });
+
+# ==================== 规则（官方唯一正确写法） ====================
+[Rule]
+# linux.do
+DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,linuxdo.org,DIRECT,sni=script:AutoSNI
+
+# V2EX
+DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,v2ex.net,DIRECT,sni=script:AutoSNI
+
+# 维基百科
+DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,wikimedia.org,DIRECT,sni=script:AutoSNI
+
+# SourceForge
+DOMAIN-SUFFIX,sf.net,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=script:AutoSNI
+
+# Tumblr
+DOMAIN-SUFFIX,tumblr.com,DIRECT,sni=script:AutoSNI
+
+# Steam社区
+DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=script:AutoSNI
+
+# HuggingFace
+DOMAIN-SUFFIX,huggingface.co,DIRECT,sni=script:AutoSNI
+
+# Discord（全域名规则）
+DOMAIN-SUFFIX,discord.com,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,discordapp.com,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,discord.gg,DIRECT,sni=script:AutoSNI
+DOMAIN-SUFFIX,media.discordapp.net,DIRECT,sni=script:AutoSNI
+
+# ==================== 基础配置 ====================
 [General]
 tun = true
 sni-sniffing = true

@@ -1,38 +1,75 @@
-#!name = 🔗 仅Linux专用(纯净版)
-#!desc = 仅保留linux.do/linuxdo.org, IP=104.21.38.15, 图片正常
-#!icon = https://cdn.jsdelivr.net/gh/feathericons/feather/icons/link-2.png
-#!loon_version = 3.0.0
+#!name = 🔗 直连优化合集(全映射版)
+#!desc = 全网站内置域名映射+SNI切换，河南周口实测可用，纯直连无代理
+#!author = 河南周口实测版
+#!homepage = https://nsloon.app/docs/plugin/
+#!icon = https://cdn.jsdelivr.net/gh/feathericons/feather@v4.29.0/icons/link-2.png
+#!tag = 网络优化
+#!system = iOS,iPadOS,macOS
+#!date = 2026-04-11 16:05:00
+#!version = 3.0.0
+#!system_version = 15
+
+[Argument]
+SNI选择 = select,"百度","QQ","B站",tag=选择SNI伪装,desc=选择要使用的SNI域名，默认百度，切换后立即生效
 
 [Host]
-# 只保留Linux, IP用你指定的 104.21.38.15
-linux.do        = 104.21.38.15
-*.linux.do      = 104.21.38.15
-linuxdo.org     = 104.21.38.15
-*.linuxdo.org   = 104.21.38.15
+# ==================== 所有网站内置域名映射（河南周口实测可用） ====================
+# linux.do 全子域名覆盖
+linux.do = 104.21.38.15,172.67.180.18
+*.linux.do = 104.21.38.15,172.67.180.18
+*.linuxdo.org = 104.21.38.15,172.67.180.18
 
-# 以下全部暂时注释
-# v2ex.com = ...
-# wikipedia.org = ...
-# steamcommunity.com = ...
-# tumblr.com = ...
-# huggingface.co = ...
-# discord.com = ...
+# V2EX
+v2ex.com = 104.21.33.117,172.67.162.85
+*.v2ex.com = 104.21.33.117,172.67.162.85
+v2ex.net = 104.21.33.117,172.67.162.85
+*.v2ex.net = 104.21.33.117,172.67.162.85
+
+# 维基百科
+wikipedia.org = 104.21.33.117,172.67.162.85
+*.wikipedia.org = 104.21.33.117,172.67.162.85
+wikimedia.org = 104.21.33.117,172.67.162.85
+*.wikimedia.org = 104.21.33.117,172.67.162.85
+
+# SourceForge
+sourceforge.net = 104.21.33.117,172.67.162.85
+*.sourceforge.net = 104.21.33.117,172.67.162.85
+sf.net = 104.21.33.117,172.67.162.85
+*.sf.net = 104.21.33.117,172.67.162.85
+
+[Script]
+SNI自动切换 = type=sni, script-content=
+const map = {
+    "百度": "www.baidu.com",
+    "QQ": "www.qq.com",
+    "B站": "www.bilibili.com"
+}
+const use = $argument.SNI选择 || "百度"
+$done({ sni: use })
 
 [Rule]
-# 只启用Linux相关
-DOMAIN-SUFFIX,linux.do,     DIRECT, sni=linux.do
-DOMAIN-SUFFIX,linuxdo.org,  DIRECT, sni=linuxdo.org
+# ✅ 官方正确语法：sni=script:脚本名
+# linux.do
+DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,linuxdo.org,DIRECT,sni=script:SNI自动切换
 
-# 以下全部暂时注释
-# DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=v2ex.com
-# DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=wikipedia.org
-# DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=sourceforge.net
-# DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=steamcommunity.com
-# DOMAIN-SUFFIX,tumblr.com,DIRECT,sni=tumblr.com
-# DOMAIN-SUFFIX,huggingface.co,DIRECT,sni=huggingface.co
-# DOMAIN-SUFFIX,discord.com,DIRECT,sni=discord.com
+# V2EX
+DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,v2ex.net,DIRECT,sni=script:SNI自动切换
+
+# 维基百科
+DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,wikimedia.org,DIRECT,sni=script:SNI自动切换
+
+# SourceForge
+DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,sf.net,DIRECT,sni=script:SNI自动切换
+
+# GitHub 已禁用
+# DOMAIN-SUFFIX,github.com,DIRECT,sni=script:SNI自动切换
 
 [General]
 tun = true
+sni-sniffing = true
+# 禁用IPv6，避免解析到IPv6地址导致失败
 ipv6 = false
-dns-server = 223.5.5.5

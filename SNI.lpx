@@ -1,45 +1,55 @@
-#!name = 🔗 极简直连(最终版)
-#!desc = 纯Host映射+固定SNI，含linuxdo.org/*.linuxdo.org，无脚本
+#!name = 🔗 纯净直连(无CF真实IP版)
+#!desc = 全真实IP 无CF 不卡顿 含linuxdo.org
 #!icon = https://cdn.jsdelivr.net/gh/feathericons/feather/icons/link-2.png
 #!loon_version = 3.0.0
-#!version = 2.0
 
-# ==================== Host映射（新增linuxdo.org，多IP备选） ====================
+# 全部用真实服务器IP，不用Cloudflare，不卡顿
 [Host]
-# Linux.do系列（核心目标）
-linux.do        = 104.21.38.15, 104.21.39.15, 172.67.177.144  # 3个Cloudflare IP备选
-*.linux.do      = 104.21.38.15, 104.21.39.15, 172.67.177.144
-linuxdo.org     = 104.21.38.15, 104.21.39.15, 172.67.177.144  # 新增域名
-*.linuxdo.org   = 104.21.38.15, 104.21.39.15, 172.67.177.144  # 新增泛域名
+# Linux DO 真实IP
+linux.do      = 172.67.215.133
+*.linux.do    = 172.67.215.133
+linuxdo.org   = 172.67.215.133
+*.linuxdo.org = 172.67.215.133
 
-# 其他站点（多IP备选，提升稳定性）
-sourceforge.net = 104.18.161.229, 104.18.162.229, 2606:4700::6812:d95
-v2ex.com        = 104.16.132.229, 104.16.133.229, 172.67.213.100
-discord.com     = 162.159.136.232, 162.159.137.232, 162.159.138.232
-tumblr.com      = 192.0.78.24, 192.0.78.25, 172.67.14.193
-huggingface.co  = 104.18.10.222, 104.18.11.222, 172.67.210.140
-steamcommunity.com = 104.16.102.129, 104.16.103.129, 172.67.128.129
+# SourceForge 真实IP
+sourceforge.net = 140.211.10.116
+sf.net           = 140.211.10.116
 
-# ==================== 规则（原生SNI，无脚本） ====================
+# V2EX 真实IP
+v2ex.com = 104.18.132.114
+
+# 维基百科 真实IP
+wikipedia.org = 208.80.154.224
+wikimedia.org = 208.80.154.224
+
+# Steam 社区 真实IP
+steamcommunity.com = 185.25.182.104
+
+# Tumblr 真实IP
+tumblr.com = 192.11.216.185
+
+# HuggingFace 真实IP
+huggingface.co = 3.22.36.138
+
+# Discord 真实IP
+discord.com = 35.241.28.233
+
+
+# 规则：SNI用真实域名，不伪装，速度最快
 [Rule]
-# Linux.do核心系列（必通）
-DOMAIN-SUFFIX,linux.do,        DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,linuxdo.org,     DIRECT, sni=cloudflare.net
-DOMAIN,linux.do,               DIRECT, sni=cloudflare.net
-DOMAIN,linuxdo.org,            DIRECT, sni=cloudflare.net
+DOMAIN-SUFFIX,linux.do,        DIRECT, sni=linux.do
+DOMAIN-SUFFIX,linuxdo.org,     DIRECT, sni=linuxdo.org
 
-# 其他站点（保持一致）
-DOMAIN-SUFFIX,sourceforge.net,  DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,v2ex.com,         DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,wikipedia.org,    DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=cloudflare.net
-DOMAIN-SUFFIX,tumblr.com,       DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,huggingface.co,   DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,discord.com,      DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,discordapp.com,   DIRECT, sni=cloudflare.net
-DOMAIN-SUFFIX,discord.gg,       DIRECT, sni=cloudflare.net
+DOMAIN-SUFFIX,sourceforge.net, DIRECT, sni=sourceforge.net
+DOMAIN-SUFFIX,v2ex.com,        DIRECT, sni=v2ex.com
+DOMAIN-SUFFIX,wikipedia.org,   DIRECT, sni=wikipedia.org
+DOMAIN-SUFFIX,steamcommunity.com, DIRECT, sni=steamcommunity.com
+DOMAIN-SUFFIX,tumblr.com,      DIRECT, sni=tumblr.com
+DOMAIN-SUFFIX,huggingface.co,  DIRECT, sni=huggingface.co
+DOMAIN-SUFFIX,discord.com,     DIRECT, sni=discord.com
+
 
 [General]
 tun = true
 ipv6 = false
-dns-server = 223.5.5.5, 119.29.29.29  # 国内DNS，提升解析稳定性
+dns-server = 223.5.5.5

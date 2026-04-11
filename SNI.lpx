@@ -1,53 +1,36 @@
-#!name = 🔗 纯净直连(无CF真实IP版)
-#!desc = 全真实IP 无CF 不卡顿 含linuxdo.org
+#!name = 🔗 仅Linux专用(纯净版)
+#!desc = 仅保留linux.do/linuxdo.org, IP=104.21.38.15, 图片正常
 #!icon = https://cdn.jsdelivr.net/gh/feathericons/feather/icons/link-2.png
 #!loon_version = 3.0.0
 
-# 全部用真实服务器IP，不用Cloudflare，不卡顿
 [Host]
-# Linux DO 真实IP
-linux.do      = 172.67.215.133
-*.linux.do    = 172.67.215.133
-linuxdo.org   = 172.67.215.133
-*.linuxdo.org = 172.67.215.133
+# 只保留Linux, IP用你指定的 104.21.38.15
+linux.do        = 104.21.38.15
+*.linux.do      = 104.21.38.15
+linuxdo.org     = 104.21.38.15
+*.linuxdo.org   = 104.21.38.15
 
-# SourceForge 真实IP
-sourceforge.net = 140.211.10.116
-sf.net           = 140.211.10.116
+# 以下全部暂时注释
+# v2ex.com = ...
+# wikipedia.org = ...
+# steamcommunity.com = ...
+# tumblr.com = ...
+# huggingface.co = ...
+# discord.com = ...
 
-# V2EX 真实IP
-v2ex.com = 104.18.132.114
-
-# 维基百科 真实IP
-wikipedia.org = 208.80.154.224
-wikimedia.org = 208.80.154.224
-
-# Steam 社区 真实IP
-steamcommunity.com = 185.25.182.104
-
-# Tumblr 真实IP
-tumblr.com = 192.11.216.185
-
-# HuggingFace 真实IP
-huggingface.co = 3.22.36.138
-
-# Discord 真实IP
-discord.com = 35.241.28.233
-
-
-# 规则：SNI用真实域名，不伪装，速度最快
 [Rule]
-DOMAIN-SUFFIX,linux.do,        DIRECT, sni=linux.do
-DOMAIN-SUFFIX,linuxdo.org,     DIRECT, sni=linuxdo.org
+# 只启用Linux相关
+DOMAIN-SUFFIX,linux.do,     DIRECT, sni=linux.do
+DOMAIN-SUFFIX,linuxdo.org,  DIRECT, sni=linuxdo.org
 
-DOMAIN-SUFFIX,sourceforge.net, DIRECT, sni=sourceforge.net
-DOMAIN-SUFFIX,v2ex.com,        DIRECT, sni=v2ex.com
-DOMAIN-SUFFIX,wikipedia.org,   DIRECT, sni=wikipedia.org
-DOMAIN-SUFFIX,steamcommunity.com, DIRECT, sni=steamcommunity.com
-DOMAIN-SUFFIX,tumblr.com,      DIRECT, sni=tumblr.com
-DOMAIN-SUFFIX,huggingface.co,  DIRECT, sni=huggingface.co
-DOMAIN-SUFFIX,discord.com,     DIRECT, sni=discord.com
-
+# 以下全部暂时注释
+# DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=v2ex.com
+# DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=wikipedia.org
+# DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=sourceforge.net
+# DOMAIN-SUFFIX,steamcommunity.com,DIRECT,sni=steamcommunity.com
+# DOMAIN-SUFFIX,tumblr.com,DIRECT,sni=tumblr.com
+# DOMAIN-SUFFIX,huggingface.co,DIRECT,sni=huggingface.co
+# DOMAIN-SUFFIX,discord.com,DIRECT,sni=discord.com
 
 [General]
 tun = true

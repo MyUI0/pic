@@ -1,12 +1,17 @@
-#!name=直连优化合集
-#!desc=纯DIRECT直连，SNI下拉选择，无代理合规使用
-#!icon=https://cdn.jsdelivr.net/gh/feathericons/feather@v4.29.0/icons/link-2.svg
-#!author=官方规范版
-#!loon_version=3.2.1
+#!name = 🔗 直连优化合集
+#!desc = 纯DIRECT直连，SNI下拉选择，无代理合规使用
+#!openUrl = 
+#!author = 标准规范版
+#!homepage = https://nsloon.app/docs/plugin/
+#!icon = https://cdn.jsdelivr.net/gh/feathericons/feather@v4.29.0/icons/link-2.png
+#!tag = 网络优化
+#!system = iOS,iPadOS,macOS
+#!date = 2026-04-11 14:30:00
+#!version = 1.0.0
+#!system_version = 15
 
-[Settings]
-# 官方标准下拉选择器语法
-SNI选择 = select,"百度","QQ","B站",tag=选择SNI伪装,desc=选择要使用的SNI域名，默认百度
+[Argument]
+SNI选择 = select,"百度","QQ","B站",tag=选择SNI伪装,desc=选择要使用的SNI域名，默认百度，切换后立即生效
 
 [Script]
 SNI自动切换 = type=sni, script-content=
@@ -15,8 +20,8 @@ const map = {
     "QQ": "www.qq.com",
     "B站": "www.bilibili.com"
 }
-// 从官方Settings读取用户选择
-const use = $persistentStore.read("SNI选择") || "百度"
+// 从官方Argument读取用户选择（和BiliBili插件完全一致）
+const use = $argument.SNI选择 || "百度"
 $done({ sni: map[use] })
 
 [Rule]

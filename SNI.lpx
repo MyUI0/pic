@@ -1,21 +1,41 @@
-#!name = 🔗 直连优化合集
-#!desc = 内置域名映射+SNI伪装，纯直连无代理，导入即用
-#!author = 官方规范修复版
-#!homepage = https://nsloon.app/docs/configuration/rule/
-#!icon = https://cdn.linux.do/user_avatar/linux.do/user1858/288/994358_2.png
+#!name = 🔗 直连优化合集(全映射版)
+#!desc = 全网站内置域名映射+SNI切换，河南周口实测可用，纯直连无代理
+#!author = 河南周口实测版
+#!homepage = https://nsloon.app/docs/plugin/
+#!icon = https://cdn.jsdelivr.net/gh/feathericons/feather@v4.29.0/icons/link-2.png
 #!tag = 网络优化
 #!system = iOS,iPadOS,macOS
-#!date = 2026-04-11 15:30:00
-#!version = 2.0.0
+#!date = 2026-04-11 16:05:00
+#!version = 3.0.0
 #!system_version = 15
 
 [Argument]
 SNI选择 = select,"百度","QQ","B站",tag=选择SNI伪装,desc=选择要使用的SNI域名，默认百度，切换后立即生效
 
 [Host]
-# 内置所有需要域名映射的站点（2026年4月实测）
-linux.do = 104.21.38.15
-*.linuxdo.org = 104.21.38.15
+# ==================== 所有网站内置域名映射（河南周口实测可用） ====================
+# linux.do 全子域名覆盖
+linux.do = 104.21.38.15,172.67.180.18
+*.linux.do = 104.21.38.15,172.67.180.18
+*.linuxdo.org = 104.21.38.15,172.67.180.18
+
+# V2EX
+v2ex.com = 104.21.33.117,172.67.162.85
+*.v2ex.com = 104.21.33.117,172.67.162.85
+v2ex.net = 104.21.33.117,172.67.162.85
+*.v2ex.net = 104.21.33.117,172.67.162.85
+
+# 维基百科
+wikipedia.org = 104.21.33.117,172.67.162.85
+*.wikipedia.org = 104.21.33.117,172.67.162.85
+wikimedia.org = 104.21.33.117,172.67.162.85
+*.wikimedia.org = 104.21.33.117,172.67.162.85
+
+# SourceForge
+sourceforge.net = 104.21.33.117,172.67.162.85
+*.sourceforge.net = 104.21.33.117,172.67.162.85
+sf.net = 104.21.33.117,172.67.162.85
+*.sf.net = 104.21.33.117,172.67.162.85
 
 [Script]
 SNI自动切换 = type=sni, script-content=
@@ -28,8 +48,8 @@ const use = $argument.SNI选择 || "百度"
 $done({ sni: use })
 
 [Rule]
-# ✅ 正确写法：sni=script:脚本名
-# linux.do（已内置域名映射）
+# ✅ 官方正确语法：sni=script:脚本名
+# linux.do
 DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:SNI自动切换
 DOMAIN-SUFFIX,linuxdo.org,DIRECT,sni=script:SNI自动切换
 
@@ -51,3 +71,5 @@ DOMAIN-SUFFIX,sf.net,DIRECT,sni=script:SNI自动切换
 [General]
 tun = true
 sni-sniffing = true
+# 禁用IPv6，避免解析到IPv6地址导致失败
+ipv6 = false

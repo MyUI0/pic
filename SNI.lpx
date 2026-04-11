@@ -1,17 +1,21 @@
 #!name = 🔗 直连优化合集
-#!desc = 纯DIRECT直连，SNI下拉选择，无代理合规使用
-#!openUrl = 
-#!author = 标准规范版
-#!homepage = https://nsloon.app/docs/plugin/
-#!icon = https://cdn.jsdelivr.net/gh/feathericons/feather@v4.29.0/icons/link-2.png
+#!desc = 内置域名映射+SNI伪装，纯直连无代理，导入即用
+#!author = 官方规范修复版
+#!homepage = https://nsloon.app/docs/configuration/rule/
+#!icon = https://cdn.linux.do/user_avatar/linux.do/user1858/288/994358_2.png
 #!tag = 网络优化
 #!system = iOS,iPadOS,macOS
-#!date = 2026-04-11 14:30:00
-#!version = 1.0.0
+#!date = 2026-04-11 15:30:00
+#!version = 2.0.0
 #!system_version = 15
 
 [Argument]
 SNI选择 = select,"百度","QQ","B站",tag=选择SNI伪装,desc=选择要使用的SNI域名，默认百度，切换后立即生效
+
+[Host]
+# 内置所有需要域名映射的站点（2026年4月实测）
+linux.do = 104.21.38.15
+*.linuxdo.org = 104.21.38.15
 
 [Script]
 SNI自动切换 = type=sni, script-content=
@@ -20,22 +24,29 @@ const map = {
     "QQ": "www.qq.com",
     "B站": "www.bilibili.com"
 }
-// 从官方Argument读取用户选择（和BiliBili插件完全一致）
 const use = $argument.SNI选择 || "百度"
-$done({ sni: map[use] })
+$done({ sni: use })
 
 [Rule]
-# 常用直连站点
-DOMAIN-SUFFIX,linux.do,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,linuxdo.org,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,v2ex.com,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,wikipedia.org,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,sourceforge.net,DIRECT,script=SNI自动切换
-DOMAIN-SUFFIX,sf.net,DIRECT,script=SNI自动切换
+# ✅ 正确写法：sni=script:脚本名
+# linux.do（已内置域名映射）
+DOMAIN-SUFFIX,linux.do,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,linuxdo.org,DIRECT,sni=script:SNI自动切换
 
-# GitHub 已禁用（需要时再开启）
-# DOMAIN-SUFFIX,github.com,DIRECT,script=SNI自动切换
-# DOMAIN-SUFFIX,githubusercontent.com,DIRECT,script=SNI自动切换
+# V2EX
+DOMAIN-SUFFIX,v2ex.com,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,v2ex.net,DIRECT,sni=script:SNI自动切换
+
+# 维基百科
+DOMAIN-SUFFIX,wikipedia.org,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,wikimedia.org,DIRECT,sni=script:SNI自动切换
+
+# SourceForge
+DOMAIN-SUFFIX,sourceforge.net,DIRECT,sni=script:SNI自动切换
+DOMAIN-SUFFIX,sf.net,DIRECT,sni=script:SNI自动切换
+
+# GitHub 已禁用
+# DOMAIN-SUFFIX,github.com,DIRECT,sni=script:SNI自动切换
 
 [General]
 tun = true

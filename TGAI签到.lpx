@@ -1,31 +1,34 @@
 #!name=Heaizo 自动签到
 #!desc=Heaizo每日自动签到，自动抓包配置，显示当日随机积分
-#!type=cron
-#!cron=0 8 * * *
-#!timeout=20
+#!date=2026-05-06
 #!author=AutoScript
 #!icon=https://chatclient.heaizo.com/favicon.ico
+#!loon_version=3.2.4(787)
 
-/*
+[Argument]
+arg1 = switch,true,tag=启用签到
+arg2 = switch,true,tag=自动抓包
+arg3 = input,"0 8 * * *",tag=签到时间
+
+[Script]
+cron {arg3} script-path=./Heaizo.js, timeout=20, enable={arg1}, tag=Heaizo每日签到
+http-request ^https://chatclient\.heaizo\.com/user/activity/signIn/h5 script-path=./Heaizo.js, timeout=10, enable={arg2}, tag=Heaizo自动抓包
+
 [MITM]
 hostname = chatclient.heaizo.com
 
-[Script]
-http-request ^https://chatclient\.heaizo\.com/user/activity/signIn/h5 script-path=Heaizo.js, require-body=false, timeout=10
-cron "0 8 * * *" script-path=Heaizo.js, tag=Heaizo签到, enabled=true
-*/
-
+// ========== 核心脚本代码 ==========
 const BASE_URL = 'https://chatclient.heaizo.com'
 const STORE_KEY = 'heaizo_signin_token'
 
-// 自动抓包模式：拦截手动签到请求，保存token
 if (typeof $request !== 'undefined') {
+  // 自动抓包模式
   const token = $request.headers.token
-  if (!token) {
-    $notification.post('Heaizo签到', '⚠️ 抓包失败', '请先登录小程序再点击签到')
-  } else {
+  if (token) {
     $persistentStore.write(token, STORE_KEY)
     $notification.post('Heaizo签到', '✅ 配置成功', '已自动保存token，明天开始自动签到')
+  } else {
+    $notification.post('Heaizo签到', '⚠️ 抓包失败', '请先登录小程序再点击签到')
   }
   $done()
   return

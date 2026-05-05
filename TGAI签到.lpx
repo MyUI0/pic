@@ -12,7 +12,7 @@ arg3 = input,"0 8 * * *",tag=签到时间
 
 [Script]
 cron {arg3} script-path=https://raw.githubusercontent.com/MyUI0/pic/main/TGAI.js, timeout=20, enable={arg1}, tag=Heaizo每日签到
-http-request ^https://chatclient\.heaizo\.com/user/activity/signIn/h5 script-path=https://raw.githubusercontent.com/你的用户名/你的仓库名/main/Heaizo_Code.js, timeout=10, enable={arg2}, tag=Heaizo自动抓包
+http-request ^https://chatclient\.heaizo\.com/user/activity/signIn/h5 script-path=https://raw.githubusercontent.com/MyUI0/pic/main/TGAI.lpx, timeout=10, enable={arg2}, tag=Heaizo自动抓包
 
 [MITM]
 hostname = chatclient.heaizo.com

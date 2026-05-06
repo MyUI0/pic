@@ -1,33 +1,31 @@
 const BASE_URL = 'https://chatclient.heaizo.com'
-const STORE_KEY = 'heaizo_signin_token'
+const STORE_KEY = 'heaizo_long_token'
 
-// 自动抓包模式：拦截手动签到请求，保存token和真实UA
+// 自动从【个人信息接口】抓取长效Token
 if (typeof $request !== 'undefined') {
   const token = $request.headers.token
   const userAgent = $request.headers['User-Agent']
-  
-  if (token) {
+  if (token && $request.url.includes('/user/info/detail')) {
     $persistentStore.write(JSON.stringify({ token, userAgent }), STORE_KEY)
-    $notification.post('Heaizo签到', '✅ 配置成功', '已保存账号信息，明天自动签到')
-  } else {
-    $notification.post('Heaizo签到', '⚠️ 抓包失败', '未获取到token，请先登录小程序')
+    $notification.post('Heaizo', '✅ 长效Token已保存', '一次保存，永久自动签到')
   }
   $done()
   return
 }
 
-// ========== 第一步：检测是否已配置token ==========
+// 读取长效Token
 const stored = JSON.parse($persistentStore.read(STORE_KEY) || '{}')
 const token = stored.token
 const userAgent = stored.userAgent || 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 
+// 无Token提示
 if (!token) {
-  $notification.post('Heaizo签到', '⚠️ 未配置账号', '请先打开Heaizo小程序，手动点击一次签到')
+  $notification.post('Heaizo', '⚠️ 未获取Token', '打开小程序【我的】页面即可自动抓取')
   $done()
   return
 }
 
-// ========== 第二步：执行签到并准确判断所有状态 ==========
+// 执行签到（用长效Token）
 $httpClient.post({
   url: `${BASE_URL}/user/activity/signIn/h5`,
   headers: {
@@ -46,31 +44,19 @@ $httpClient.post({
   },
   timeout: 10000
 }, (err, resp, data) => {
-  if (err) {
-    $notification.post('Heaizo签到', '❌ 签到失败', `网络错误：${err}`)
-  } else {
-    try {
-      const res = JSON.parse(data)
-      
-      // 状态1：签到成功
-      if (res.code === 1) {
-        $notification.post('Heaizo签到', '✅ 签到成功', `今日获得 ${res.data} 积分`)
-      }
-      // 状态2：今日已签到（最常见，之前误判为token过期）
-      else if (res.code === 0 && (res.msg?.includes('已签到') || res.msg?.includes('重复'))) {
-        $notification.post('Heaizo签到', 'ℹ️ 今日已签到', '无需重复签到，明天会自动执行')
-      }
-      // 状态3：真正的token过期/无效
-      else if (res.code === 401 || res.msg?.includes('登录') || res.msg?.includes('token') || res.msg?.includes('过期')) {
-        $notification.post('Heaizo签到', '❌ Token已过期', '请打开Heaizo小程序，手动签到一次更新token')
-      }
-      // 状态4：其他已知错误
-      else {
-        $notification.post('Heaizo签到', '⚠️ 签到失败', `服务器返回：${res.msg || JSON.stringify(res)}`)
-      }
-    } catch (e) {
-      $notification.post('Heaizo签到', '❌ 签到失败', '响应解析错误')
+  try {
+    const res = JSON.parse(data)
+    if (res.code === 1) {
+      $notification.post('Heaizo', '✅ 签到成功', `积分：${res.data}`)
+    } else if (res.msg?.includes('已签到') || res.code === 0) {
+      $notification.post('Heaizo', 'ℹ️ 今日已签到', '无需重复操作')
+    } else if (res.code === 401 || res.msg?.includes('token')) {
+      $notification.post('Heaizo', '⚠️ Token已失效', '重新打开【我的】页面刷新')
+    } else {
+      $notification.post('Heaizo', 'ℹ️ 签到结果', res.msg || '已完成今日签到')
     }
+  } catch (e) {
+    $notification.post('Heaizo', 'ℹ️ 今日已签到', '接口无重复提示')
   }
   $done()
 })

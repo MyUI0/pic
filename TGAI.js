@@ -1,63 +1,50 @@
-const BASE_URL = "https://chatclient.heaizo.com"
-const STORE_KEY = "heaizo_long_token"
+const STORE_KEY = "heaizo_auto_token"
+const DOMAIN = "chatclient.heaizo.com"
 
-// 万能抓取：只要请求头有token，直接保存，不限制接口
+// 【自动抓取】仅匹配小程序域名，有token就存，绝对触发
 if (typeof $request !== "undefined") {
-  const token = $request.headers.token
-  const userAgent = $request.headers["User-Agent"]
-  // 只要有token就存，不管是哪个页面的请求
-  if (token) {
-    $persistentStore.write(JSON.stringify({ token, userAgent }), STORE_KEY)
-    $notification.post("Heaizo", "✅ Token已抓取", "后续自动签到")
+  // 只处理目标域名，不干扰其他请求
+  if ($request.host.includes(DOMAIN)) {
+    const token = $request.headers.token
+    const ua = $request.headers["User-Agent"]
+    if (token) {
+      $persistentStore.write(JSON.stringify({ token, ua }), STORE_KEY)
+      $notification.post("✅ 自动抓取成功", "Token已保存", "等待自动签到")
+    }
   }
   $done()
   return
 }
 
-// 读取Token
-const stored = JSON.parse($persistentStore.read(STORE_KEY) || "{}")
-const token = stored.token
-const userAgent = stored.userAgent
-
-// 无Token提示
-if (!token) {
-  $notification.post("Heaizo", "ℹ️ 抓取Token", "重新打开小程序任意页面即可")
+// 【自动签到】读取Token并签到
+const data = $persistentStore.read(STORE_KEY)
+if (!data) {
+  $notification.post("ℹ️ 等待抓取Token", "打开小程序任意页面即可")
   $done()
   return
 }
 
-// 执行签到
+const { token, ua } = JSON.parse(data)
 $httpClient.post({
-  url: `${BASE_URL}/user/activity/signIn/h5`,
+  url: "https://chatclient.heaizo.com/user/activity/signIn/h5",
   headers: {
     "accept": "application/json, text/plain, */*",
-    "accept-language": "zh-CN,zh-Hans;q=0.9",
-    "cookie": "soulai_lang=zh_CN",
-    "origin": BASE_URL,
-    "referer": `${BASE_URL}/NewHome?platId=1`,
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
     "token": token,
     "platid": "1",
     "x-timestamp": String(Date.now()),
-    "User-Agent": userAgent
-  },
-  timeout: 10000
-}, (err, resp, data) => {
+    "User-Agent": ua,
+    "origin": "https://chatclient.heaizo.com",
+    "referer": "https://chatclient.heaizo.com/NewHome?platId=1",
+    "cookie": "soulai_lang=zh_CN"
+  }
+}, (err, resp, body) => {
   try {
-    const res = JSON.parse(data)
-    if (res.code === 1) {
-      $notification.post("Heaizo", "✅ 签到成功", "积分：" + res.data)
-    } else if (res.code === 0 || res.msg?.includes("已签到")) {
-      $notification.post("Heaizo", "ℹ️ 今日已签到", "无需重复")
-    } else if (res.code === 401 || res.msg?.includes("token")) {
-      $notification.post("Heaizo", "⚠️ Token失效", "重开小程序即可刷新")
-    } else {
-      $notification.post("Heaizo", "ℹ️ 今日已完成", res.msg || "")
-    }
-  } catch (e) {
-    $notification.post("Heaizo", "ℹ️ 今日已签到", "接口无重复提示")
+    const res = JSON.parse(body)
+    if (res.code === 1) $notification.post("✅ 自动签到成功", "今日完成")
+    else if (res.code === 0) $notification.post("ℹ️ 今日已签到", "无需重复")
+    else $notification.post("ℹ️ 签到状态", res.msg || "已完成")
+  } catch {
+    $notification.post("ℹ️ 今日已签到", "接口无重复提示")
   }
   $done()
 })

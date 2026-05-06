@@ -1,16 +1,19 @@
 const BASE_URL = 'https://chatclient.heaizo.com'
 const STORE_KEY = 'heaizo_signin_token'
 
-// 自动抓包模式：拦截手动签到请求，保存token和真实UA
+// 自动抓包模式：拦截【登录/我的/签到】三个接口，任意一个都能获取token
 if (typeof $request !== 'undefined') {
   const token = $request.headers.token
   const userAgent = $request.headers['User-Agent']
-  
-  if (token) {
-    $persistentStore.write(JSON.stringify({ token, userAgent }), STORE_KEY)
-    $notification.post('Heaizo签到', '✅ 配置成功', '已保存账号信息，明天自动签到')
-  } else {
-    $notification.post('Heaizo签到', '⚠️ 抓包失败', '未获取到token，请先登录小程序')
+  // 匹配小程序域名 + 关键接口（登录、用户信息、签到），打开就抓
+  if ($request.host.includes('chatclient.heaizo.com') && 
+     ($request.url.includes('/user/login/fast/login') || 
+      $request.url.includes('/user/info/detail') || 
+      $request.url.includes('/user/activity/signIn/h5'))) {
+    if (token) {
+      $persistentStore.write(JSON.stringify({ token, userAgent }), STORE_KEY)
+      $notification.post('Heaizo签到', '✅ 配置成功', '已保存账号信息，明天自动签到')
+    }
   }
   $done()
   return

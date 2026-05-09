@@ -1,0 +1,14 @@
+#!name=SideStore 免VPN续签（Loon专用）
+#!desc=利用hosts解析实现SideStore本地续签，无需StosVPN/WireGuard，自动后台续签
+#!author=Loon社区验证版
+#!version=2026.05.09
+#!icon=https://raw.githubusercontent.com/SideStore/SideStore/develop/Assets.xcassets/AppIcon.appiconset/Icon-60@3x.png
+#!system=iOS,iPadOS
+#!system_version=15.0
+#!loon_version=3.0.0
+
+[Host]
+10.7.0.1 = 127.0.0.1
+
+[Rule]
+IP-CIDR,10.7.0.1/32,DIRECT,no-resolve

@@ -1,18 +1,18 @@
 #!name=Heaizo 自动签到
-#!desc=Heaizo每日自动签到，自动抓包配置，显示当日随机积分
-#!date=2026-05-06
+#!desc=Heaizo每日自动签到，自动抓包长期登录凭证，自动刷新Token，显示当日积分
+#!date=2026-05-11
 #!author=AutoScript
 #!icon=https://chatclient.heaizo.com/favicon.ico
 #!loon_version=3.2.4(787)
 
 [Argument]
 arg1 = switch,true,tag=启用每日签到
-arg2 = switch,true,tag=自动抓包更新token
+arg2 = switch,true,tag=自动抓包更新长期凭证
 arg3 = input,"0 8 * * *",tag=签到时间
 
 [Script]
 cron {arg3} script-path=https://raw.githubusercontent.com/MyUI0/pic/main/TGAI.js, timeout=20, enable={arg1}, tag=Heaizo每日签到
-http-request ^https://chatclient\.heaizo\.com/user/activity/signIn/h5 script-path=https://raw.githubusercontent.com/MyUI0/pic/main/TGAI.js, timeout=10, enable={arg2}, tag=Heaizo自动抓包
+http-request ^https://chatclient\.heaizo\.com/user/login/fast/login script-path=https://raw.githubusercontent.com/MyUI0/pic/main/TGAI.js, requires-body=true, timeout=10, enable={arg2}, tag=Heaizo自动抓包更新凭证
 
 [MITM]
 hostname = chatclient.heaizo.com

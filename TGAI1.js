@@ -1,7 +1,7 @@
 const BASE_URL = 'https://chatclient.heaizo.com'
 const STORE_KEY = 'heaizo_longterm_credentials'
 
-// ========== QX 环境适配（核心修复） ==========
+// QX 环境适配
 const $ = {
   prefs: {
     write: (value, key) => $prefs.setValueForKey(value, key),
@@ -11,24 +11,31 @@ const $ = {
   done: () => $done()
 }
 
-// ========== 自动抓包模式：拦截登录请求 ==========
-if (typeof $request !== 'undefined' && $request.url.includes('/user/login/fast/login')) {
+// ========== 自动抓包模式：拦截登录响应（核心修复） ==========
+if (typeof $response !== 'undefined' && $request.url.includes('/user/login/fast/login')) {
   try {
-    // ✅ 先放行原请求，避免小程序网络错误
+    // ✅ 先放行响应，不影响小程序正常使用
     $.done()
     
+    // 1. 从原始请求体获取长期登录凭证
     const loginBody = JSON.parse($request.body)
     
-    // ✅ QX 专属：从 $request.cookies 拼接完整 Cookie
+    // 2. ✅ 从响应头的Set-Cookie获取完整Cookie（100%可靠）
     let cookieStr = ''
-    if ($request.cookies && Array.isArray($request.cookies)) {
-      cookieStr = $request.cookies.map(c => `${c.name}=${c.value}`).join('; ')
+    if ($response.headers && $response.headers['Set-Cookie']) {
+      const setCookies = Array.isArray($response.headers['Set-Cookie']) 
+        ? $response.headers['Set-Cookie'] 
+        : [$response.headers['Set-Cookie']]
+      
+      // 解析所有Set-Cookie，只保留name=value部分
+      const cookies = setCookies.map(c => {
+        const [kv] = c.split(';')
+        return kv.trim()
+      })
+      cookieStr = cookies.join('; ')
     }
-    if ($request.headers.Cookie || $request.headers.cookie) {
-      const headerCookie = $request.headers.Cookie || $request.headers.cookie
-      cookieStr = cookieStr ? `${cookieStr}; ${headerCookie}` : headerCookie
-    }
-
+    
+    // 3. 保存完整凭证
     const credentials = {
       tgName: loginBody.tgName,
       platId: loginBody.platId,
@@ -44,9 +51,15 @@ if (typeof $request !== 'undefined' && $request.url.includes('/user/login/fast/l
     }
     
     $.prefs.write(JSON.stringify(credentials), STORE_KEY)
-    $.notify('Heaizo长期签到', '✅ 配置成功', `已保存登录凭证\nCookie长度: ${cookieStr.length}`)
+    $.notify('Heaizo长期签到', '✅ 配置成功', `已保存登录凭证\nCookie长度: ${cookieStr.length}\n凭证数量: ${Object.keys(loginBody).length}`)
   } catch (e) {
-    $.notify('Heaizo长期签到', '⚠️ 抓包失败', `错误: ${e.message}`)
+    $.notify('Heaizo长期签到', '⚠️ 抓包失败', `错误: ${e.message}\n请查看QX日志获取详细信息`)
+    // 调试日志：在QX日志中查看
+    console.log('=== 抓包调试信息 ===')
+    console.log('请求URL:', $request.url)
+    console.log('请求体:', $request.body)
+    console.log('响应头:', JSON.stringify($response.headers))
+    console.log('错误详情:', e)
   }
   return
 }
@@ -97,7 +110,7 @@ function login() {
       try {
         const res = JSON.parse(data)
         if (res.code === 1 && res.data.token) {
-          // 更新Cookie
+          // 自动更新Cookie
           if (resp.headers && resp.headers['Set-Cookie']) {
             const newCookies = Array.isArray(resp.headers['Set-Cookie']) 
               ? resp.headers['Set-Cookie'] 

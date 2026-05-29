@@ -36,65 +36,99 @@ function loadCredentials() {
 // ==============================================
 if (typeof $response !== 'undefined' && $request.url.includes('/user/login/fast/login')) {
   try {
-    // 1. 从请求体提取长期登录凭证
-    const loginBody = JSON.parse($request.body)
+    let loginBody = null
+    let credentials = {}
 
-    // 2. 从响应头 Set-Cookie 获取完整Cookie
-    //    QX 的 headers 键名全小写，兼容两种写法
+    // 尝试从请求体获取登录凭证
+    if ($request.body && $request.body !== 'undefined') {
+      try {
+        loginBody = JSON.parse($request.body)
+        credentials = {
+          tgName: loginBody.tgName,
+          platId: loginBody.platId,
+          channelCode: loginBody.channelCode,
+          tgParentId: loginBody.tgParentId,
+          clientType: loginBody.clientType,
+          tgId: loginBody.tgId,
+          type: loginBody.type,
+          accessToken: loginBody.accessToken,
+          tgUserName: loginBody.tgUserName
+        }
+      } catch (e) {
+        console.log('请求体解析失败:', e)
+      }
+    }
+
+    // 如果请求体没有，尝试从响应体获取 token
+    let responseData = null
+    if ($response.body && $response.body !== 'undefined') {
+      try {
+        responseData = JSON.parse($response.body)
+        if (responseData.code === 1 && responseData.data) {
+          // 合并响应中的数据
+          credentials.accessToken = responseData.data.token || credentials.accessToken
+          credentials.tgId = responseData.data.tgId || credentials.tgId
+          credentials.tgName = responseData.data.tgName || credentials.tgName
+          credentials.tgUserName = responseData.data.tgUserName || credentials.tgUserName
+          credentials.platId = responseData.data.platId || credentials.platId || 1
+        }
+      } catch (e) {
+        console.log('响应体解析失败:', e)
+      }
+    }
+
+    // 检查是否获取到关键凭证
+    if (!credentials.accessToken) {
+      $.notify(SCRIPT_NAME, '⚠️ 抓包失败', '未能从请求或响应中获取登录凭证')
+      $.done()
+      return
+    }
+
+    // 从响应头 Set-Cookie 获取完整Cookie
     let cookieStr = ''
-    const setCookieHeader = $response.headers['set-cookie'] || $response.headers['Set-Cookie']
+    const setCookieHeader = $response.headers && ($response.headers['set-cookie'] || $response.headers['Set-Cookie'])
     if (setCookieHeader) {
       const setCookies = Array.isArray(setCookieHeader)
         ? setCookieHeader
         : [setCookieHeader]
 
       // 解析所有Cookie，只保留 name=value
-      const cookies = setCookies.map(c => c.split(';')[0].trim())
+      const cookies = setCookies.map(c => c.split(';')[0].trim()).filter(c => c)
       cookieStr = cookies.join('; ')
     }
 
-    // 3. 合并新旧Cookie（避免覆盖）
+    // 合并新旧Cookie（避免覆盖）
     const existing = loadCredentials()
-    if (existing.cookie) {
+    if (existing.cookie && cookieStr) {
       const cookieMap = new Map()
       existing.cookie.split('; ').forEach(c => {
         const [k, ...v] = c.split('=')
         if (k) cookieMap.set(k.trim(), v.join('='))
       })
-      if (cookieStr) {
-        cookieStr.split('; ').forEach(c => {
-          const [k, ...v] = c.split('=')
-          if (k) cookieMap.set(k.trim(), v.join('='))
-        })
-      }
+      cookieStr.split('; ').forEach(c => {
+        const [k, ...v] = c.split('=')
+        if (k) cookieMap.set(k.trim(), v.join('='))
+      })
       cookieStr = Array.from(cookieMap.entries())
         .map(([k, v]) => `${k}=${v}`)
         .join('; ')
+    } else if (existing.cookie && !cookieStr) {
+      cookieStr = existing.cookie
     }
 
-    // 4. 保存完整凭证
-    const credentials = {
-      tgName: loginBody.tgName,
-      platId: loginBody.platId,
-      channelCode: loginBody.channelCode,
-      tgParentId: loginBody.tgParentId,
-      clientType: loginBody.clientType,
-      tgId: loginBody.tgId,
-      type: loginBody.type,
-      accessToken: loginBody.accessToken,
-      tgUserName: loginBody.tgUserName,
-      userAgent: $request.headers['User-Agent'] || $request.headers['user-agent'],
-      cookie: cookieStr
-    }
+    // 保存完整凭证
+    credentials.userAgent = $request.headers && ($request.headers['User-Agent'] || $request.headers['user-agent'])
+    credentials.cookie = cookieStr || existing.cookie || 'soulai_lang=zh_CN'
 
     saveCredentials(credentials)
-    $.notify(SCRIPT_NAME, '✅ 配置成功', `已保存登录凭证\nCookie长度: ${cookieStr.length}`)
+    $.notify(SCRIPT_NAME, '✅ 配置成功', `已保存登录凭证\nToken: ${(credentials.accessToken || '').substring(0, 20)}...\nCookie长度: ${(cookieStr || '').length}`)
   } catch (e) {
     $.notify(SCRIPT_NAME, '⚠️ 抓包失败', `错误: ${e.message}`)
-    console.log('Heaizo抓包错误:', e, $request.body, $response.headers)
+    console.log('Heaizo抓包错误:', e)
+    console.log('Request:', JSON.stringify($request))
+    console.log('Response:', JSON.stringify($response))
   }
 
-  // ✅ $done() 放在最后，确保上面的逻辑全部执行完毕后再放行响应
   $.done()
 }
 

@@ -9,7 +9,7 @@ const $ = {
     read: (k) => $prefs.valueForKey(k)
   },
   notify: (t, s, b) => $notify(t, s, b),
-  done: () => $done()
+  done: (r) => $done(r)
 }
 
 // ========== 工具函数 ==========
@@ -32,103 +32,110 @@ function loadCredentials() {
 }
 
 // ==============================================
-// 模式1：请求脚本 - 保存登录参数（type、tgName 等）
+// 模式1：请求脚本 - 拦截登录请求，抓取全部凭证
+// （使用 script-request-body 规则）
 // ==============================================
 if (typeof $request !== 'undefined' && typeof $response === 'undefined' && $request.url.includes('/user/login/fast/login')) {
-  try {
-    // 从请求体获取完整登录凭证
-    if ($request.body && $request.body !== 'undefined') {
+  ;(async () => {
+    try {
+      // 1. 解析请求体，获取登录参数
+      if (!$request.body || $request.body === 'undefined') {
+        $.notify(SCRIPT_NAME, '⚠️ 请求体为空', '无法获取登录参数')
+        $.done({})
+        return
+      }
+
       const loginBody = JSON.parse($request.body)
-      
-      // 合并已有凭证（保留 Cookie）
-      const existing = loadCredentials()
-      const credentials = {
-        ...existing,  // 保留已有数据（如 Cookie）
-        tgName: loginBody.tgName,
-        platId: loginBody.platId,
-        channelCode: loginBody.channelCode,
-        tgParentId: loginBody.tgParentId,
-        clientType: loginBody.clientType,
-        tgId: loginBody.tgId,
-        type: loginBody.type,  // ← 关键字段
-        accessToken: loginBody.accessToken,
-        tgUserName: loginBody.tgUserName,
-        userAgent: $request.headers && ($request.headers['User-Agent'] || $request.headers['user-agent'])
-      }
-      
-      saveCredentials(credentials)
-      $.notify(SCRIPT_NAME, '✅ 请求参数已保存', `type: ${loginBody.type}\ntgName: ${loginBody.tgName}`)
-    } else {
-      $.notify(SCRIPT_NAME, '⚠️ 请求体为空', '无法获取登录参数')
-    }
-  } catch (e) {
-    $.notify(SCRIPT_NAME, '⚠️ 请求解析失败', `错误: ${e.message}`)
-    console.log('请求解析错误:', e, $request.body)
-  }
-  $.done()
-}
+      const userAgent = $request.headers['User-Agent'] || $request.headers['user-agent'] || ''
 
-// ==============================================
-// 模式2：响应脚本 - 保存 Cookie 和更新 token
-// ==============================================
-else if (typeof $response !== 'undefined' && $request.url.includes('/user/login/fast/login')) {
-  try {
-    const existing = loadCredentials()
-    
-    // 从响应体获取最新 token
-    if ($response.body && $response.body !== 'undefined') {
-      try {
-        const responseData = JSON.parse($response.body)
-        if (responseData.code === 1 && responseData.data) {
-          existing.accessToken = responseData.data.token || existing.accessToken
-          existing.tgId = responseData.data.tgId || existing.tgId
-          existing.tgName = responseData.data.tgName || existing.tgName
-          existing.tgUserName = responseData.data.tgUserName || existing.tgUserName
-          existing.platId = responseData.data.platId || existing.platId || 1
+      // 2. 手动发一次登录请求，获取响应（Cookie + Token）
+      const resp = await new Promise((resolve, reject) => {
+        $task.fetch({
+          method: 'POST',
+          url: $request.url,
+          headers: $request.headers,
+          body: $request.body,
+          timeout: 15000
+        }).then(resolve).catch(reject)
+      })
+
+      // 3. 从响应头提取 Cookie
+      let cookieStr = ''
+      const setCookieHeader = resp.headers && (resp.headers['set-cookie'] || resp.headers['Set-Cookie'])
+      if (setCookieHeader) {
+        const setCookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader]
+        const cookies = setCookies.map(c => c.split(';')[0].trim()).filter(c => c)
+        cookieStr = cookies.join('; ')
+      }
+
+      // 4. 从响应体提取 Token
+      let token = loginBody.accessToken || ''
+      if (resp.body) {
+        try {
+          const resData = JSON.parse(resp.body)
+          if (resData.code === 1 && resData.data && resData.data.token) {
+            token = resData.data.token
+          }
+        } catch (e) {
+          console.log('响应体解析跳过:', e)
         }
-      } catch (e) {
-        console.log('响应体解析失败:', e)
       }
+
+      // 5. 合并新旧 Cookie
+      const existing = loadCredentials()
+      if (existing.cookie && cookieStr) {
+        const cookieMap = new Map()
+        existing.cookie.split('; ').forEach(c => {
+          const [k, ...v] = c.split('=')
+          if (k) cookieMap.set(k.trim(), v.join('='))
+        })
+        cookieStr.split('; ').forEach(c => {
+          const [k, ...v] = c.split('=')
+          if (k) cookieMap.set(k.trim(), v.join('='))
+        })
+        cookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ')
+      } else if (existing.cookie && !cookieStr) {
+        cookieStr = existing.cookie
+      }
+
+      // 6. 保存完整凭证
+      const credentials = {
+        tgName: loginBody.tgName || '',
+        platId: loginBody.platId || 1,
+        channelCode: loginBody.channelCode || '',
+        tgParentId: loginBody.tgParentId || '',
+        clientType: loginBody.clientType || '',
+        tgId: loginBody.tgId || '',
+        type: loginBody.type || '',
+        accessToken: token,
+        tgUserName: loginBody.tgUserName || '',
+        userAgent: userAgent,
+        cookie: cookieStr || existing.cookie || 'soulai_lang=zh_CN'
+      }
+
+      saveCredentials(credentials)
+
+      // 7. 通知结果
+      $.notify(
+        SCRIPT_NAME,
+        '✅ 全部凭证已保存',
+        `type: ${credentials.type}\n` +
+        `Token: ${token.substring(0, 20)}...\n` +
+        `Cookie长度: ${(cookieStr || '').length}\n` +
+        `tgName: ${credentials.tgName}`
+      )
+    } catch (e) {
+      $.notify(SCRIPT_NAME, '⚠️ 抓包失败', `错误: ${e.message}`)
+      console.log('抓包错误:', e)
     }
-    
-    // 从响应头 Set-Cookie 获取完整 Cookie
-    let cookieStr = ''
-    const setCookieHeader = $response.headers && ($response.headers['set-cookie'] || $response.headers['Set-Cookie'])
-    if (setCookieHeader) {
-      const setCookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader]
-      const cookies = setCookies.map(c => c.split(';')[0].trim()).filter(c => c)
-      cookieStr = cookies.join('; ')
-    }
-    
-    // 合并 Cookie
-    if (existing.cookie && cookieStr) {
-      const cookieMap = new Map()
-      existing.cookie.split('; ').forEach(c => {
-        const [k, ...v] = c.split('=')
-        if (k) cookieMap.set(k.trim(), v.join('='))
-      })
-      cookieStr.split('; ').forEach(c => {
-        const [k, ...v] = c.split('=')
-        if (k) cookieMap.set(k.trim(), v.join('='))
-      })
-      cookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ')
-    } else if (existing.cookie && !cookieStr) {
-      cookieStr = existing.cookie
-    }
-    
-    existing.cookie = cookieStr || existing.cookie || 'soulai_lang=zh_CN'
-    saveCredentials(existing)
-    
-    $.notify(SCRIPT_NAME, '✅ Cookie 已保存', `Token: ${(existing.accessToken || '').substring(0, 20)}...\nCookie长度: ${(cookieStr || '').length}\ntype字段: ${existing.type || '未保存'}`)
-  } catch (e) {
-    $.notify(SCRIPT_NAME, '⚠️ 响应解析失败', `错误: ${e.message}`)
-    console.log('响应解析错误:', e)
-  }
-  $.done()
+
+    // 8. 放行原始请求（不影响小程序正常使用）
+    $.done({})
+  })()
 }
 
 // ==============================================
-// 模式3：定时任务 - 自动签到
+// 模式2：定时任务 - 自动签到
 // ==============================================
 else {
   const credentials = loadCredentials()
@@ -139,7 +146,7 @@ else {
     $.notify(SCRIPT_NAME, '⚠️ 未配置账号', '请先打开Heaizo小程序登录一次')
     $.done()
   } else if (!credentials.type) {
-    $.notify(SCRIPT_NAME, '⚠️ 参数不完整', '缺少 type 字段，请确保配置了请求脚本规则')
+    $.notify(SCRIPT_NAME, '⚠️ 参数不完整', '缺少 type 字段，请重新打开小程序登录')
     $.done()
   } else {
     // 自动登录获取最新 Token
@@ -166,7 +173,7 @@ else {
             tgParentId: credentials.tgParentId || '',
             clientType: credentials.clientType || '',
             tgId: credentials.tgId || '',
-            type: credentials.type,  // ← 必须字段
+            type: credentials.type,
             accessToken: credentials.accessToken,
             ip: "",
             tgUserName: credentials.tgUserName || ''

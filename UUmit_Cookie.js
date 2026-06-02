@@ -46,6 +46,7 @@ function saveToken(token) {
   if (token !== prev) {
     store.write(KEY, token);
     console.log(`[uumit] Token saved: ${token.substring(0, 20)}...`);
+    notify("uumit Token", "已捕获", "登录成功，签到可用");
     return true;
   }
   return false;
@@ -75,7 +76,7 @@ else if (typeof $task !== 'undefined') {
       headers: {
         "Authorization": `Bearer ${token}`,
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        "Accept": "​*/* ​",
+        "Accept": "*/*",
         "Accept-Language": "zh-CN,zh-Hans;q=0.9",
         "Origin": HOST,
         "Referer": HOST + "/hall",
@@ -163,8 +164,6 @@ else if (typeof $task !== 'undefined') {
     out.push("\n═══════════════════");
     console.log(out.join("\n"));
 
-    ok ? notify("uumit 签到成功", "", out.filter(l => l.includes("✓")).join(" | "))
-       : notify("uumit 签到失败", "", out.filter(l => l.includes("❌")).join("\n"));
-  })();
-  $done();
+    ok ? notify("uumit 签到成功", "", out.filter(l => l.includes("✓")).join(" | ")) : notify("uumit 签到失败", "", out.filter(l => l.includes("❌")).join("\n"));
+  })().finally(() => { $done(); });
 }

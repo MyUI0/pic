@@ -16,8 +16,8 @@ uumit 每日签到 + 自动 Token 抓取 (QuantumultX)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 [rewrite_local]
-# uumit Token 自动捕获
-^https://m\.uumit\.com/api/v1/users/me url script-request-header uumit_checkin.js
+# uumit Token 自动捕获（匹配所有 API 请求，确保刷新页面时能抓到 Token）
+^https://m\.uumit\.com/api/ url script-request-header uumit_checkin.js
 
 [task_local]
 # uumit 每日签到 (每天 0:00 执行)

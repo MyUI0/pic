@@ -10,30 +10,20 @@ uumit 每日签到 + 自动 Token 抓取 (QuantumultX)
 3. QX → 配置 → 任务 → + → 粘贴 [task_local]
 4. 打开 uumit App 登录一次 → 自动捕获 Token
 5. 以后每天 0 点自动签到
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📌 Token 刷新
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-每次 API 请求都重新检查 Authorization header
-→ 登录过期重新登录 → 新 token 自动覆盖
-→ 页面刷新 → 新请求 → token 自动更新
 */
 
-// ===================== 配置 =====================
 const HOST = "https://m.uumit.com";
 const KEY = "uumit_token";
-// ===============================================
 
 const API = {
-  checkin:     "/api/v1/daily/checkin",      // POST
-  box:         "/api/v1/daily/box",           // GET
-  cyberEgg:    "/api/v1/llm/cyber-egg/today", // GET
-  wallet:      "/api/v1/wallet",              // GET
-  walletStats: "/api/v1/wallet/stats",        // GET
-  userMe:      "/api/v1/users/me",            // GET
+  checkin:     "/api/v1/daily/checkin",
+  box:         "/api/v1/daily/box",
+  cyberEgg:    "/api/v1/llm/cyber-egg/today",
+  wallet:      "/api/v1/wallet",
+  walletStats: "/api/v1/wallet/stats",
+  userMe:      "/api/v1/users/me",
 };
 
-// ============= 工具函数 =============
 const store = {
   read(k) { return $prefs.valueForKey(k); },
   write(k, v) { $prefs.setValueForKey(v, k); },
@@ -45,23 +35,9 @@ function notify(title, sub, body) {
 }
 
 function extractToken() {
-  const hdrs = $request?.headers || {};
-  const auth = hdrs.Authorization || hdrs.authorization || '';
+  const auth = $request?.headers?.Authorization || $request?.headers?.authorization || '';
   const m = auth.match(/^Bearer\s+(.+)/);
-  if (m?.[1]?.startsWith('eyJ')) return m[1];
-
-  const rhdrs = $response?.headers || {};
-  const rauth = rhdrs.Authorization || rhdrs.authorization || '';
-  const rm = rauth.match(/^Bearer\s+(.+)/);
-  if (rm?.[1]?.startsWith('eyJ')) return rm[1];
-  if ($response?.body) {
-    try {
-      const b = JSON.parse($response.body);
-      const t = b?.data?.token || b?.token;
-      if (t?.startsWith('eyJ')) return t;
-    } catch {}
-  }
-  return null;
+  return m?.[1]?.startsWith('eyJ') ? m[1] : null;
 }
 
 function saveToken(token) {
@@ -69,8 +45,7 @@ function saveToken(token) {
   const prev = store.read(KEY);
   if (token !== prev) {
     store.write(KEY, token);
-    console.log(`[uumit] Token saved`);
-    if (!prev) notify("uumit Token", "已捕获", "登录成功，签到可用");
+    console.log(`[uumit] Token saved: ${token.substring(0, 20)}...`);
     return true;
   }
   return false;
@@ -80,14 +55,14 @@ function getToken() {
   return store.read(KEY) || extractToken() || null;
 }
 
-// ============= Rewrite 入口 =============
+// ── Rewrite: 自动捕获 Token ──
 if (typeof $request !== 'undefined') {
   const t = extractToken();
   if (t) saveToken(t);
   $done({});
 }
 
-// ============= Task 入口 =============
+// ── Task: 执行签到 ──
 else if (typeof $task !== 'undefined') {
 
   function api(method, path, body, retry = 0) {
@@ -188,6 +163,8 @@ else if (typeof $task !== 'undefined') {
     out.push("\n═══════════════════");
     console.log(out.join("\n"));
 
-    ok ? notify("uumit 签到成功", "", out.filter(l => l.includes("✓")).join(" | ")) : notify("uumit 签到失败", "", out.filter(l => l.includes("❌")).join("\n"));
+    ok ? notify("uumit 签到成功", "", out.filter(l => l.includes("✓")).join(" | "))
+       : notify("uumit 签到失败", "", out.filter(l => l.includes("❌")).join("\n"));
   })();
+  $done();
 }

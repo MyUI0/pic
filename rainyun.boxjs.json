@@ -1,58 +1,40 @@
 {
-  "id": "rainyun",
-  "name": "雨云签到",
-  "keys": ["rainyun_accounts", "rainyun_sessions", "rainyun_last_run"],
-  "author": "@converted",
-  "repo": "https://github.com/your-repo/rainyun",
-  "icons": [
-    "https://app.rainyun.com/favicon.ico",
-    "https://app.rainyun.com/favicon.ico"
-  ],
-  "descs_html": [
-    "<h2>雨云每日签到</h2>",
-    "<p>支持多账号自动签到获取积分</p>",
-    "<p>注册链接：<a href='https://www.rainyun.com/MTA3MDY0OQ==_'>https://www.rainyun.com</a></p>",
-    "<p>走链接注册有五折券，用券十几块就能买一个月云服务器</p>"
-  ],
-  "settings": [
+  "id": "MyUI0.app.sub",
+  "name": "MyUI0 脚本订阅",
+  "author": "@MyUI0",
+  "repo": "https://github.com/MyUI0/pic",
+  "icon": "https://avatars.githubusercontent.com/u/xxx",
+  "apps": [
     {
-      "id": "rainyun_accounts",
-      "name": "账号配置",
-      "val": "",
-      "type": "textarea",
-      "autoGrow": true,
-      "rows": 3,
-      "desc": "格式：用户名&密码（多个账号用 @ 分隔）\n示例：user1&pass1@user2&pass2"
-    },
-    {
-      "id": "rainyun_notify",
-      "name": "通知方式",
-      "val": "qx",
-      "type": "radios",
-      "items": [
+      "id": "rainyun",
+      "name": "雨云签到",
+      "keys": ["rainyun_accounts", "rainyun_sessions", "rainyun_last_run"],
+      "descs_html": [
+        "<h2>雨云每日签到</h2>",
+        "<p>支持多账号自动签到获取积分</p>",
+        "<p>注册链接：<a href='https://www.rainyun.com/MTA3MDY0OQ==_'>点击注册</a>（有五折券）</p>"
+      ],
+      "settings": [
         {
-          "key": "qx",
-          "label": "QX 系统通知"
-        },
-        {
-          "key": "silent",
-          "label": "静默运行（仅日志）"
+          "id": "rainyun_accounts",
+          "name": "账号配置",
+          "val": "",
+          "type": "textarea",
+          "autoGrow": true,
+          "rows": 3,
+          "desc": "格式：用户名&密码（多账号用 @ 分隔）\n示例：user1&pass1@user2&pass2"
         }
       ],
-      "desc": "选择签到结果的通知方式"
-    },
-    {
-      "id": "rainyun_debug",
-      "name": "调试模式",
-      "val": false,
-      "type": "boolean",
-      "desc": "开启后显示详细日志"
-    }
-  ],
-  "scripts": [
-    {
-      "name": "雨云签到",
-      "script": "rainyun_checkin.js"
+      "scripts": [
+        {
+          "name": "雨云签到",
+          "script": "https://raw.githubusercontent.com/MyUI0/pic/main/rainyun_checkin.js"
+        }
+      ],
+      "icons": [
+        "https://app.rainyun.com/favicon.ico",
+        "https://app.rainyun.com/favicon.ico"
+      ]
     }
   ]
 }

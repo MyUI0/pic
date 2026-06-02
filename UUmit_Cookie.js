@@ -1,13 +1,13 @@
 /*
 uumit 每日签到 + 自动 Token 抓取 (QuantumultX)
-抓包: 2026-06-02 | 作者: yuku
+抓包: 2026-06-02
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 首次使用
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. QX → 配置 → 重写 → + → 粘贴下方 [rewrite_local]
-2. QX → 配置 → 代理 → HTTPS 解密 → + → 粘贴下方 [MITM]
-3. QX → 配置 → 任务 → + → 粘贴下方 [task_local]
+1. QX → 配置 → 重写 → + → 粘贴 [rewrite_local]
+2. QX → 配置 → 代理 → HTTPS 解密 → + → 粘贴 [MITM]
+3. QX → 配置 → 任务 → + → 粘贴 [task_local]
 4. 打开 uumit App 登录一次 → 自动捕获 Token
 5. 以后每天 0 点自动签到
 
@@ -15,7 +15,7 @@ uumit 每日签到 + 自动 Token 抓取 (QuantumultX)
 📌 Token 刷新
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 每次 API 请求都重新检查 Authorization header
-→ 登录过期重新登录 → 新 token 自动覆盖旧的
+→ 登录过期重新登录 → 新 token 自动覆盖
 → 页面刷新 → 新请求 → token 自动更新
 */
 
@@ -35,34 +35,29 @@ const API = {
 
 // ============= 工具函数 =============
 const store = {
-  read(k) { return $persistentStore?.read(k) || null; },
-  write(k, v) { $persistentStore?.write(v, k); },
+  read(k) { return $prefs.valueForKey(k); },
+  write(k, v) { $prefs.setValueForKey(v, k); },
 };
 
 function notify(title, sub, body) {
-  $notification?.post(title, sub, body);
+  try { $notification?.post(title, sub, body); } catch {}
   console.log(`[通知] ${title} | ${body}`);
 }
 
 function extractToken() {
   const hdrs = $request?.headers || {};
-  for (const k of Object.keys(hdrs)) {
-    if (k.toLowerCase() === 'authorization') {
-      const m = hdrs[k].match(/^Bearer\s+(.+)/);
-      if (m?.[1]?.startsWith('eyJ')) return m[1];
-    }
-  }
+  const auth = hdrs.Authorization || hdrs.authorization || '';
+  const m = auth.match(/^Bearer\s+(.+)/);
+  if (m?.[1]?.startsWith('eyJ')) return m[1];
+
   const rhdrs = $response?.headers || {};
-  for (const k of Object.keys(rhdrs)) {
-    if (k.toLowerCase() === 'authorization') {
-      const m = rhdrs[k].match(/^Bearer\s+(.+)/);
-      if (m?.[1]?.startsWith('eyJ')) return m[1];
-    }
-  }
+  const rauth = rhdrs.Authorization || rhdrs.authorization || '';
+  const rm = rauth.match(/^Bearer\s+(.+)/);
+  if (rm?.[1]?.startsWith('eyJ')) return rm[1];
   if ($response?.body) {
     try {
       const b = JSON.parse($response.body);
-      const t = b?.data?.token || b?.data?.access_token || b?.token || b?.access_token;
+      const t = b?.data?.token || b?.token;
       if (t?.startsWith('eyJ')) return t;
     } catch {}
   }
@@ -86,7 +81,6 @@ function getToken() {
 }
 
 // ============= Rewrite 入口 =============
-// 每次 API 请求触发，页面刷新后自动重新检查 token
 if (typeof $request !== 'undefined') {
   const t = extractToken();
   if (t) saveToken(t);
@@ -94,10 +88,8 @@ if (typeof $request !== 'undefined') {
 }
 
 // ============= Task 入口 =============
-// 执行一次签到，成功或失败都通知后退出
 else if (typeof $task !== 'undefined') {
 
-  // HTTP 请求
   function api(method, path, body, retry = 0) {
     const token = getToken();
     if (!token) return Promise.reject("未获取 Token，请先登录 uumit");
@@ -108,7 +100,7 @@ else if (typeof $task !== 'undefined') {
       headers: {
         "Authorization": `Bearer ${token}`,
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        "Accept": "*/*",
+        "Accept": "​*/* ​",
         "Accept-Language": "zh-CN,zh-Hans;q=0.9",
         "Origin": HOST,
         "Referer": HOST + "/hall",
@@ -125,7 +117,6 @@ else if (typeof $task !== 'undefined') {
     });
   }
 
-  // 主流程
   (async () => {
     const out = [];
     const now = new Date();

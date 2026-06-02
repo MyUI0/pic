@@ -30,7 +30,7 @@ const store = {
 };
 
 function notify(title, sub, body) {
-  try { $notification?.post(title, sub, body); } catch {}
+  try { $notification.post(title, sub, body); } catch {}
   console.log(`[通知] ${title} | ${body}`);
 }
 
@@ -45,8 +45,8 @@ function saveToken(token) {
   const prev = store.read(KEY);
   if (token !== prev) {
     store.write(KEY, token);
+    store.write(KEY + "_new", "1");
     console.log(`[uumit] Token saved: ${token.substring(0, 20)}...`);
-    notify("uumit Token", "已捕获", "登录成功，签到可用");
     return true;
   }
   return false;
@@ -76,7 +76,7 @@ else if (typeof $task !== 'undefined') {
       headers: {
         "Authorization": `Bearer ${token}`,
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        "Accept": "*/*",
+        "Accept": "​*/* ​",
         "Accept-Language": "zh-CN,zh-Hans;q=0.9",
         "Origin": HOST,
         "Referer": HOST + "/hall",
@@ -110,12 +110,16 @@ else if (typeof $task !== 'undefined') {
       notify("uumit 签到失败", "Token 未配置", "请先登录 uumit");
       return;
     }
+
+    const isNew = store.read(KEY + "_new");
+    if (isNew === "1") {
+      notify("uumit Token", "已捕获", "登录成功，签到可用");
+      store.write(KEY + "_new", "0");
+    }
     out.push(`\nToken: ${token.substring(0, 20)}...`);
 
-    // 用户信息
     try { const r = await api("GET", API.userMe); if (r?.code === 0) out.push(`用户: ${r.data.profile.nickname}`); } catch {}
 
-    // 签到
     out.push("\n每日签到");
     let ok = false;
     try {
@@ -132,7 +136,6 @@ else if (typeof $task !== 'undefined') {
       }
     } catch (e) { out.push(`  签到异常: ${e.message}`); }
 
-    // 宝箱
     out.push("\n宝箱任务");
     try {
       const r = await api("GET", API.box);
@@ -145,14 +148,12 @@ else if (typeof $task !== 'undefined') {
       }
     } catch {}
 
-    // 扭蛋
     out.push("\n免费额度");
     try {
       const r = await api("GET", API.cyberEgg);
       if (r?.code === 0) out.push(`  ${r.data.claimed ? "✓" : " "} ¥${r.data.value_cny} ${r.data.claimed ? "(已领)" : "(待领取)"}`);
     } catch {}
 
-    // 钱包
     out.push("\n钱包");
     try {
       const r = await api("GET", API.wallet);

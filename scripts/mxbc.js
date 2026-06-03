@@ -38,13 +38,45 @@ const fetchAPI = async (o) => {
     try {
         if (typeof o === 'string') o = { url: o };
         if (o?.url?.startsWith("/")) o.url = baseUrl + o.url;
-        const res = await Request({ ...o, headers: o.headers || _headers, url: o.url });
+        const res = await requestTask({ ...o, headers: o.headers || _headers, url: o.url });
         return res;
     } catch (e) {
         $.ckStatus = false;
         $.log(`⛔️ 请求失败: ${e}`);
     }
 };
+
+function requestTask(options) {
+    return new Promise((resolve, reject) => {
+        if (typeof options === 'string') options = { url: options };
+        let url = options.url;
+        if (options.params) {
+            let qs = Object.entries(options.params).map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+            url += (url.includes('?') ? '&' : '?') + qs;
+        }
+        let method = (options.method || (options.body ? 'POST' : 'GET')).toUpperCase();
+        let headers = options.headers || {};
+        let body = options.body;
+        if (body && typeof body === 'object' && !headers['content-type']?.toLowerCase()?.includes('json') && !headers['Content-Type']?.toLowerCase()?.includes('json')) {
+            body = Object.entries(body).map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+        } else if (body && typeof body === 'object') {
+            body = JSON.stringify(body);
+        }
+        let timeout = options.timeout || 15000;
+        let opts = { url, method, headers, body, timeout };
+        $.log(`[fetch] ${method} ${url}`);
+        $task.fetch(opts).then(
+            resp => {
+                let result = options.resultType === 'all' ? resp : resp.body;
+                if (result && typeof result === 'string' && result.startsWith('{')) {
+                    try { result = JSON.parse(result); } catch {}
+                }
+                resolve(result);
+            },
+            err => reject(err)
+        );
+    });
+}
 
 // ========== 主流程 ==========
 async function main() {
@@ -161,7 +193,7 @@ async function getActivitySession(loginUrl) {
             }
         };
 
-        let res = await Request(opts);
+        let res = await requestTask(opts);
         let headers = ObjectKeys2LowerCase(res?.headers || {});
         let cookies = headers['set-cookie'] || '';
         if (Array.isArray(cookies)) cookies = cookies.join('; ');
@@ -176,7 +208,7 @@ async function getActivitySession(loginUrl) {
                 // 用 location 再试
                 opts.url = location.startsWith('http') ? location : `https://76177-activity.dexfu.cn${location}`;
                 opts.followRedirect = true;
-                let res2 = await Request(opts);
+                let res2 = await requestTask(opts);
                 let headers2 = ObjectKeys2LowerCase(res2?.headers || {});
                 let cookies2 = headers2['set-cookie'] || '';
                 if (Array.isArray(cookies2)) cookies2 = cookies2.join('; ');
@@ -214,7 +246,7 @@ async function visitSnowKingMall(session) {
             }
         };
 
-        let res = await Request(opts);
+        let res = await requestTask(opts);
         let body = typeof res === 'string' ? res : JSON.stringify(res);
 
         if (body && body.includes('请重新登陆')) {

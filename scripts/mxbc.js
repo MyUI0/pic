@@ -11,11 +11,11 @@ hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
 
 [Script]
 # 获取Token（进入小程序我的页面触发）
-http-response ^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info script-path=mxbc_qx.js, requires-body=true, timeout=60, tag=蜜雪冰城获取token
+http-response ^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info script-path=mxbc.js, requires-body=true, timeout=60, tag=蜜雪冰城获取token
 
 # 定时任务（每天8点）
 [task_local]
-0 8 * * * mxbc_qx.js, tag=蜜雪冰城访问雪王铺
+0 8 * * * mxbc.js, tag=蜜雪冰城访问雪王铺
 */
 
 const $ = new Env("蜜雪冰城");

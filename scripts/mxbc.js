@@ -66,8 +66,6 @@ async function main() {
             let pointB = userInfo?.point || 0;
             $.log(`📊 当前余额: ${pointB} 雪王币`);
 
-            // 2. 访问雪王铺（获取雪王币）
-            await visitMall();
 
             // 3. 访问雪王铺（核心：获取活动奖励）
             if ($.ckStatus) {

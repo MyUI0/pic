@@ -156,8 +156,10 @@ async function getLoginUrl() {
     try {
         let t = ts13();
         let dbredirect = "https://76177-activity.dexfu.cn/chw/visual-editor/skins?id=216593";
+        let signContent = "appId=d82be6bbc1da11eb9dd000163e122ecb&dbredirect=" + encodeURIComponent(dbredirect) + "&t=" + t;
+        let sign = getSHA256withRSA(signContent);
         let res = await requestTask({
-            url: `https://mxsa.mxbc.net/api/v1/duiba/getLoginUrl?appId=d82be6bbc1da11eb9dd000163e122ecb&t=${t}&sign=${getSHA256withRSA('appId=d82be6bbc1da11eb9dd000163e122ecb&t=' + t)}&dbredirect=${encodeURIComponent(dbredirect)}`,
+            url: `https://mxsa.mxbc.net/api/v1/duiba/getLoginUrl?appId=d82be6bbc1da11eb9dd000163e122ecb&dbredirect=${encodeURIComponent(dbredirect)}&t=${t}&sign=${sign}`,
             headers: _headers
         });
         if (res?.data?.loginUrl) {

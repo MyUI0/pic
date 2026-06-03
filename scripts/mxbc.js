@@ -64,12 +64,12 @@ function requestTask(options) {
         }
         let timeout = options.timeout || 15000;
         let opts = { url, method, headers, body, timeout };
-        $.log(`[fetch] ${method} ${url}`);
+        $.log(`[fetch] ${options.resultType === 'all' ? '' : method} ${url.replace(/\?.*/, '')}`);
         $task.fetch(opts).then(
             resp => {
                 let result = options.resultType === 'all' ? resp : resp.body;
-                if (result && typeof result === 'string' && result.startsWith('{')) {
-                    try { result = JSON.parse(result); } catch {}
+                if (result && typeof result === 'string') {
+                    if (result.startsWith('{')) try { result = JSON.parse(result); } catch {}
                 }
                 resolve(result);
             },
@@ -155,21 +155,16 @@ async function getUserInfo() {
 async function getLoginUrl() {
     try {
         let t = ts13();
-        let res = await fetchAPI({
-            url: `/api/v1/duiba/getLoginUrl`,
-            params: {
-                appId: "d82be6bbc1da11eb9dd000163e122ecb",
-                t,
-                sign: getSHA256withRSA('appId=d82be6bbc1da11eb9dd000163e122ecb&t=' + t),
-                // 从抓包可知 redirect 目标是 skins 页面 (雪王铺)
-                dbredirect: "https%3A%2F%2F76177-activity.dexfu.cn%2Fchw%2Fvisual-editor%2Fskins%3Fid%3D216593"
-            }
+        let dbredirect = "https://76177-activity.dexfu.cn/chw/visual-editor/skins?id=216593";
+        let res = await requestTask({
+            url: `https://mxsa.mxbc.net/api/v1/duiba/getLoginUrl?appId=d82be6bbc1da11eb9dd000163e122ecb&t=${t}&sign=${getSHA256withRSA('appId=d82be6bbc1da11eb9dd000163e122ecb&t=' + t)}&dbredirect=${encodeURIComponent(dbredirect)}`,
+            headers: _headers
         });
         if (res?.data?.loginUrl) {
             $.log(`✅ 获取活动登录URL成功`);
             return res.data.loginUrl;
         }
-        $.log(`⛔️ 获取活动登录URL失败`);
+        $.log(`⛔️ 获取活动登录URL失败: ${$.toStr(res)}`);
     } catch (e) {
         $.log(`⛔️ 获取活动登录URL异常: ${e}`);
     }
@@ -391,7 +386,7 @@ async function loadCryptoJS() {
     }
 })()
     .catch(e => { $.logErr(e); })
-    .finally(() => { $.done({ ok: 1 }); });
+    .finally(() => { setTimeout(() => $.done(), 500); });
 
 // ========== 通知 ==========
 function sendNotify(msg) {

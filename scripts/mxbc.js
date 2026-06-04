@@ -1,7 +1,7 @@
 /*
 ------------------------------------------
 @Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币2
+@Desc: 每日自动访问雪王铺获取雪王币3
 ------------------------------------------
 
 ⚙️ QX配置：
@@ -509,7 +509,7 @@ function Env(t, e) {
     getScript(t) { return new Promise(r => { this.get({ url: t }, (e, s, b) => r(b)); }); }
     get(t, cb) {
       const opts = typeof t === 'string' ? { url: t } : t;
-      $task.fetch(opts).then(resp => cb(null, null, resp.body), err => cb(err));
+      $task.fetch(opts).then(resp => cb(null, null, toString(resp.body)), err => cb(err));
     }
     log(t) {
       if (!this.isMute) {
@@ -524,6 +524,16 @@ function Env(t, e) {
       }
     }
   }(t, e);
+}
+
+
+
+// ========== 工具 ==========
+function toString(body) {
+    if (typeof body === 'string') return body;
+    if (body instanceof ArrayBuffer) return new Uint8Array(body).reduce((s, b) => s + String.fromCharCode(b), '');
+    if (typeof body === 'object') return JSON.stringify(body);
+    return String(body);
 }
 
 function ObjectKeys2LowerCase(obj) {

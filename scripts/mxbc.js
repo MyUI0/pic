@@ -1,7 +1,7 @@
 /*
 ------------------------------------------
 @Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币0
+@Desc: 每日自动访问雪王铺获取雪王币1
 ------------------------------------------
 
 ⚙️ QX配置：
@@ -388,7 +388,7 @@ async function main() {
     $.logErr(e);
   } finally {
     if ($.notifyMsg.length) {
-      $.msg($.name, '', $.notifyMsg.join('\n'));
+      $.msg($.name, '签到结果', $.notifyMsg.join('\n'));
     }
   }
 }
@@ -402,9 +402,15 @@ async function loadCryptoJS() {
     const code = $.getdata('CryptoJS_code');
     if (code) {
       $.log(`✅ 使用缓存的CryptoJS`);
-      eval(code);
-      CryptoJS = createCryptoJS();
-      return true;
+      try {
+        eval(code);
+        CryptoJS = createCryptoJS();
+        if (!CryptoJS) throw new Error('eval后CryptoJS仍为null');
+        return true;
+      } catch (e) {
+        $.log(`⚠️ CryptoJS缓存失效: ${e.message}，重新下载...`);
+        $.setdata('', 'CryptoJS_code');
+      }
     }
     $.log(`🚀 下载CryptoJS...`);
     const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
@@ -432,14 +438,24 @@ async function loadJsrsasign() {
     const code = $.getdata('Jsrsasign_code');
     if (code) {
       $.log(`✅ 使用缓存的Jsrsasign`);
-      eval(code);
-      return true;
+      try {
+        eval(code);
+        // 验证变量是否成功加载
+        if (typeof KEYUTIL === 'undefined' || typeof KJUR === 'undefined') {
+          throw new Error('缓存变量缺失，需重新下载');
+        }
+        return true;
+      } catch (e) {
+        $.log(`⚠️ 缓存失效: ${e.message}，重新下载...`);
+        $.setdata('', 'Jsrsasign_code'); // 清缓存
+      }
     }
     $.log(`🚀 下载Jsrsasign...`);
     const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/jsrsasign-part.js');
     if (fn) {
       $.setdata(fn, 'Jsrsasign_code');
       eval(fn);
+      if (typeof KEYUTIL === 'undefined') throw new Error('Jsrsasign加载后KEYUTIL未定义');
       $.log(`✅ Jsrsasign加载成功`);
       return true;
     }
@@ -457,12 +473,12 @@ async function loadJsrsasign() {
       await getCookie();
     } else {
       const loaded = await loadJsrsasign();
-      if (!loaded) { $.msg($.name, '⛔️ RSA库加载失败', '请检查网络连接'); return; }
+      if (!loaded) { $.msg($.name, '⛔️ 错误', 'RSA库加载失败，请检查网络'); return; }
       await main();
     }
   } catch (e) {
     $.logErr(e);
-    $.msg($.name, '⛔️ 运行错误', e.message || e);
+    $.msg($.name, '⛔️ 错误', e.message || e);
   }
 })()
   .catch(e => { $.logErr(e); })
@@ -510,7 +526,7 @@ function Env(t, e) {
     logErr(t) { this.log(`❌ ${t}`); }
     msg(t = this.name, e = '', s = '', r) {
       if (typeof $notification !== 'undefined') {
-        $notification.post(t, e + (e ? ' ' : '') + s, '', {
+        $notification.post(t, e, s, {
           'open-url': r?.['open-url'],
           'media-url': r?.['media-url']
         });

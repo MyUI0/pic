@@ -1,7 +1,7 @@
 /*
 ------------------------------------------
 @Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币1
+@Desc: 每日自动访问雪王铺获取雪王币2
 ------------------------------------------
 
 ⚙️ QX配置：
@@ -403,7 +403,7 @@ async function loadCryptoJS() {
     if (code) {
       $.log(`✅ 使用缓存的CryptoJS`);
       try {
-        eval(code);
+        executeInGlobal(code);
         CryptoJS = createCryptoJS();
         if (!CryptoJS) throw new Error('eval后CryptoJS仍为null');
         return true;
@@ -416,7 +416,7 @@ async function loadCryptoJS() {
     const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
     if (fn) {
       $.setdata(fn, 'CryptoJS_code');
-      eval(fn);
+      executeInGlobal(fn);
       CryptoJS = createCryptoJS();
       $.log(`✅ CryptoJS加载成功`);
       return true;
@@ -435,31 +435,18 @@ async function loadJsrsasign() {
       const ok = await loadCryptoJS();
       if (!ok) return false;
     }
-    const code = $.getdata('Jsrsasign_code');
-    if (code) {
-      $.log(`✅ 使用缓存的Jsrsasign`);
-      try {
-        eval(code);
-        // 验证变量是否成功加载
-        if (typeof KEYUTIL === 'undefined' || typeof KJUR === 'undefined') {
-          throw new Error('缓存变量缺失，需重新下载');
-        }
-        return true;
-      } catch (e) {
-        $.log(`⚠️ 缓存失效: ${e.message}，重新下载...`);
-        $.setdata('', 'Jsrsasign_code'); // 清缓存
-      }
-    }
-    $.log(`🚀 下载Jsrsasign...`);
+    // 强制清掉可能损坏的缓存，每次都完整下载
+    $.setdata('', 'Jsrsasign_code');
+    $.log(`🚀 下载Jsrsasign (96KB)...`);
     const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/jsrsasign-part.js');
-    if (fn) {
-      $.setdata(fn, 'Jsrsasign_code');
-      eval(fn);
-      if (typeof KEYUTIL === 'undefined') throw new Error('Jsrsasign加载后KEYUTIL未定义');
-      $.log(`✅ Jsrsasign加载成功`);
-      return true;
-    }
-    throw new Error('下载失败');
+    if (!fn || fn.length < 50000) throw new Error('下载不完整，请检查网络');
+    // 写入持久化缓存
+    $.setdata(fn, 'Jsrsasign_code');
+    // eval 并验证
+    executeInGlobal(fn);
+    if (typeof KEYUTIL === 'undefined') throw new Error('KEYUTIL未定义，eval可能被沙箱隔离');
+    $.log(`✅ Jsrsasign加载成功`);
+    return true;
   } catch (e) {
     $.logErr(`加载Jsrsasign失败: ${e}`);
     return false;
@@ -483,6 +470,13 @@ async function loadJsrsasign() {
 })()
   .catch(e => { $.logErr(e); })
   .finally(() => setTimeout(() => $.done(), 1000));
+
+// ========== 全局执行环境（在最顶层定义，eval结果可全局访问） ==========
+function executeInGlobal(code) {
+  // QX/Surge script-engine: 顶层代码 eval 作用于全局上下文
+  // 不需要 special handling，直接 eval 即可
+  eval(code);
+}
 
 // ========== Env工具 ==========
 function Env(t, e) {
@@ -525,12 +519,7 @@ function Env(t, e) {
     }
     logErr(t) { this.log(`❌ ${t}`); }
     msg(t = this.name, e = '', s = '', r) {
-      if (typeof $notification !== 'undefined') {
-        $notification.post(t, e, s, {
-          'open-url': r?.['open-url'],
-          'media-url': r?.['media-url']
-        });
-      } else if (typeof $notify !== 'undefined') {
+      if (typeof $notify !== 'undefined') {
         $notify(t, e, s, { 'open-url': r?.['open-url'] });
       }
     }

@@ -1,7 +1,7 @@
 /*
 ------------------------------------------
 @Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币4
+@Desc: 每日自动访问雪王铺获取雪王币6
 ------------------------------------------
 
 ⚙️ QX配置：
@@ -401,23 +401,23 @@ async function loadJsrsasign() {
       const cjCode = $.getdata('CryptoJS_code');
       if (cjCode) {
         $.log(`✅ 使用缓存的CryptoJS`);
-        (0, eval)(cjCode); // QX全局eval
-        if (!globalThis.CryptoJS) {
+        (new Function(cjCode))(); // 全局作用域执行
+        if (!CryptoJS) {
           $.log(`⚠️ CryptoJS缓存失效，重新下载...`);
           $.setdata('', 'CryptoJS_code');
         }
       }
     }
-    if (!globalThis.CryptoJS) {
+    if (!CryptoJS) {
       $.log(`🚀 下载CryptoJS...`);
       const cj = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
       if (cj) {
         $.setdata(cj, 'CryptoJS_code');
-        (0, eval)(cj); // QX全局eval
+        (new Function(cj))(); // 全局作用域执行
         $.log(`✅ CryptoJS加载成功`);
       }
     }
-    if (!globalThis.CryptoJS) { $.logErr(`CryptoJS加载失败`); return false; }
+    if (!CryptoJS) { $.logErr(`CryptoJS加载失败`); return false; }
 
     // Jsrsasign：强制清缓存确保完整
     $.setdata('', 'Jsrsasign_code');
@@ -425,7 +425,7 @@ async function loadJsrsasign() {
     const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/jsrsasign-part.js');
     if (!fn || fn.length < 50000) throw new Error('下载不完整，请检查网络');
     $.setdata(fn, 'Jsrsasign_code');
-    (0, eval)(fn); // QX全局eval
+    (new Function(fn))(); // 全局作用域执行
     if (typeof globalThis.KEYUTIL === 'undefined') throw new Error('KEYUTIL未定义');
     $.log(`✅ Jsrsasign加载成功`);
     return true;

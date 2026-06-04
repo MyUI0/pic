@@ -1,7 +1,7 @@
 /*
 ------------------------------------------
 @Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币3
+@Desc: 每日自动访问雪王铺获取雪王币5
 ------------------------------------------
 
 ⚙️ QX配置：
@@ -393,62 +393,44 @@ async function main() {
   }
 }
 
-// ========== 加载CryptoJS ==========
-let CryptoJS = null;
-function createCryptoJS() { return CryptoJS; }
-
-async function loadCryptoJS() {
-  try {
-    const code = $.getdata('CryptoJS_code');
-    if (code) {
-      $.log(`✅ 使用缓存的CryptoJS`);
-      try {
-        executeInGlobal(code);
-        CryptoJS = createCryptoJS();
-        if (!CryptoJS) throw new Error('eval后CryptoJS仍为null');
-        return true;
-      } catch (e) {
-        $.log(`⚠️ CryptoJS缓存失效: ${e.message}，重新下载...`);
-        $.setdata('', 'CryptoJS_code');
-      }
-    }
-    $.log(`🚀 下载CryptoJS...`);
-    const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
-    if (fn) {
-      $.setdata(fn, 'CryptoJS_code');
-      executeInGlobal(fn);
-      CryptoJS = createCryptoJS();
-      $.log(`✅ CryptoJS加载成功`);
-      return true;
-    }
-    throw new Error('CryptoJS下载失败');
-  } catch (e) {
-    $.logErr(`加载CryptoJS失败: ${e}`);
-    return false;
-  }
-}
-
-// ========== 加载RSA库（依赖CryptoJS） ==========
+// ========== 加载RSA库（eval在全局作用域执行，KEYUTIL/CryptoJS自动挂载到globalThis） ==========
 async function loadJsrsasign() {
   try {
-    if (!CryptoJS) {
-      const ok = await loadCryptoJS();
-      if (!ok) return false;
+    // 先加载CryptoJS（jsrsasign-part.js 依赖 CryptoJS 全局变量）
+    if (!globalThis.CryptoJS) {
+      const cjCode = $.getdata('CryptoJS_code');
+      if (cjCode) {
+        $.log(`✅ 使用缓存的CryptoJS`);
+        $environment(cjCode); // QX全局eval
+        if (!globalThis.CryptoJS) {
+          $.log(`⚠️ CryptoJS缓存失效，重新下载...`);
+          $.setdata('', 'CryptoJS_code');
+        }
+      }
     }
-    // 强制清掉可能损坏的缓存，每次都完整下载
+    if (!globalThis.CryptoJS) {
+      $.log(`🚀 下载CryptoJS...`);
+      const cj = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
+      if (cj) {
+        $.setdata(cj, 'CryptoJS_code');
+        $environment(cj); // QX全局eval
+        $.log(`✅ CryptoJS加载成功`);
+      }
+    }
+    if (!globalThis.CryptoJS) { $.logErr(`CryptoJS加载失败`); return false; }
+
+    // Jsrsasign：强制清缓存确保完整
     $.setdata('', 'Jsrsasign_code');
     $.log(`🚀 下载Jsrsasign (96KB)...`);
     const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/jsrsasign-part.js');
     if (!fn || fn.length < 50000) throw new Error('下载不完整，请检查网络');
-    // 写入持久化缓存
     $.setdata(fn, 'Jsrsasign_code');
-    // eval 并验证
-    executeInGlobal(fn);
-    if (typeof KEYUTIL === 'undefined') throw new Error('KEYUTIL未定义，eval可能被沙箱隔离');
+    $environment(fn); // QX全局eval
+    if (typeof globalThis.KEYUTIL === 'undefined') throw new Error('KEYUTIL未定义');
     $.log(`✅ Jsrsasign加载成功`);
     return true;
   } catch (e) {
-    $.logErr(`加载Jsrsasign失败: ${e}`);
+    $.logErr(`加载RSA库失败: ${e}`);
     return false;
   }
 }
@@ -471,12 +453,6 @@ async function loadJsrsasign() {
   .catch(e => { $.logErr(e); })
   .finally(() => setTimeout(() => $.done(), 1000));
 
-// ========== 全局执行环境（在最顶层定义，eval结果可全局访问） ==========
-function executeInGlobal(code) {
-  // QX/Surge script-engine: 顶层代码 eval 作用于全局上下文
-  // 不需要 special handling，直接 eval 即可
-  eval(code);
-}
 
 // ========== Env工具 ==========
 function Env(t, e) {

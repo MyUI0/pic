@@ -1,7 +1,7 @@
 /*
 ------------------------------------------
 @Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币
+@Desc: 每日自动访问雪王铺获取雪王币0
 ------------------------------------------
 
 ⚙️ QX配置：
@@ -393,9 +393,42 @@ async function main() {
   }
 }
 
-// ========== 加载RSA库 ==========
+// ========== 加载CryptoJS ==========
+let CryptoJS = null;
+function createCryptoJS() { return CryptoJS; }
+
+async function loadCryptoJS() {
+  try {
+    const code = $.getdata('CryptoJS_code');
+    if (code) {
+      $.log(`✅ 使用缓存的CryptoJS`);
+      eval(code);
+      CryptoJS = createCryptoJS();
+      return true;
+    }
+    $.log(`🚀 下载CryptoJS...`);
+    const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
+    if (fn) {
+      $.setdata(fn, 'CryptoJS_code');
+      eval(fn);
+      CryptoJS = createCryptoJS();
+      $.log(`✅ CryptoJS加载成功`);
+      return true;
+    }
+    throw new Error('CryptoJS下载失败');
+  } catch (e) {
+    $.logErr(`加载CryptoJS失败: ${e}`);
+    return false;
+  }
+}
+
+// ========== 加载RSA库（依赖CryptoJS） ==========
 async function loadJsrsasign() {
   try {
+    if (!CryptoJS) {
+      const ok = await loadCryptoJS();
+      if (!ok) return false;
+    }
     const code = $.getdata('Jsrsasign_code');
     if (code) {
       $.log(`✅ 使用缓存的Jsrsasign`);
@@ -424,7 +457,8 @@ async function loadJsrsasign() {
       await getCookie();
     } else {
       const loaded = await loadJsrsasign();
-      if (loaded) await main();
+      if (!loaded) { $.msg($.name, '⛔️ RSA库加载失败', '请检查网络连接'); return; }
+      await main();
     }
   } catch (e) {
     $.logErr(e);

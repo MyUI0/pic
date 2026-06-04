@@ -16,10 +16,12 @@ uumit 每日签到 + 星火计划领取 + 自动 Token 刷新 (QuantumultX)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 [rewrite_local]
-# uumit Token 自动捕获（script-request-header：当请求发出时捕获 Access Token）
-^https://m\.uumit\.com/api/v1/ url script-request-header https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js
-# uumit Token 自动捕获（script-response-body：捕获登录响应中的 Refresh Token）
-^https://m\.uumit\.com/(api/v1/)?auth/(login|send-code|refresh) url script-response-body https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js
+# uumit Token 自动捕获（script-response-body：拦截所有 API 响应，同时捕获请求头的 access_token 和登录响应体的 refresh_token）
+^https://m\.uumit\.com/api/v1/ url script-response-body https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js
+
+[task_local]
+# uumit 每日签到 + 星火 (每天 0:00 执行)
+0 0 * * * https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js, tag=uumit签到+星火, enabled=true
 
 [MITM]
 hostname = m.uumit.com
@@ -182,14 +184,11 @@ function saveApiKey(claimData) {
   }
 }
 
-// ── Rewrite 模式判断 ──
-// QX 支持两种模式：
-//   1. script-request-header  → $request 存在，$response 不存在
-//   2. script-response-body   → $request 和 $response 都存在
+// ── Rewrite 模式（script-response-body：同时捕获请求头的 access_token 和响应体的 refresh_token）──
 const isRewriteRequest = typeof $request !== 'undefined' && $request;
 
-// ── Rewrite: script-request-header（捕获 Authorization 请求头）──
-if (isRewriteRequest && typeof $response === 'undefined') {
+if (isRewriteRequest) {
+  // 1. 从请求头捕获 access_token
   const t = extractTokenPair();
   if (t.access_token) {
     const prev = store.read(KEY_AT);
@@ -197,28 +196,24 @@ if (isRewriteRequest && typeof $response === 'undefined') {
       store.write(KEY_AT, t.access_token);
       console.log(`[uumit] Access Token 已捕获: ${t.access_token.substring(0, 20)}...`);
     }
-  } else {
-    console.log("[uumit] 未找到有效的 Authorization Token");
   }
-  $done({});
-}
 
-// ── Rewrite: script-response-body（捕获登录响应中的 refresh_token）──
-else if (isRewriteRequest && typeof $response !== 'undefined') {
-  const pair = extractFromResponseBody();
-  if (pair) {
-    if (pair.access_token) store.write(KEY_AT, pair.access_token);
-    if (pair.refresh_token) {
-      store.write(KEY_RT, pair.refresh_token);
-      console.log(`[uumit] Refresh Token 已保存`);
+  // 2. 从响应体捕获 refresh_token（登录成功时）
+  if (typeof $response !== 'undefined') {
+    const pair = extractFromResponseBody();
+    if (pair) {
+      if (pair.access_token) store.write(KEY_AT, pair.access_token);
+      if (pair.refresh_token) {
+        store.write(KEY_RT, pair.refresh_token);
+        console.log(`[uumit] Refresh Token 已保存`);
+      }
+      if (pair.user) {
+        store.write(KEY_USER, JSON.stringify({ id: pair.user.id, email: pair.user.email, nickname: pair.user.nickname }));
+      }
+      notify("uumit Token", "已登录", "Access + Refresh Token 已保存，签到可用");
     }
-    if (pair.user) {
-      store.write(KEY_USER, JSON.stringify({ id: pair.user.id, email: pair.user.email, nickname: pair.user.nickname }));
-    }
-    notify("uumit Token", "已登录", "Access + Refresh Token 已保存，签到可用");
-  } else {
-    console.log(`[uumit] 响应体未解析到 Token pair: ${($request?.url || '').substring(0, 60)}`);
   }
+
   $done({});
 }
 

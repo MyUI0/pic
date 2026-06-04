@@ -1,7 +1,7 @@
 /*
 ------------------------------------------
 @Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币6
+@Desc: 每日自动访问雪王铺获取雪王币7
 ------------------------------------------
 
 ⚙️ QX配置：
@@ -393,41 +393,36 @@ async function main() {
   }
 }
 
-// ========== 加载RSA库（eval在全局作用域执行，KEYUTIL/CryptoJS自动挂载到globalThis） ==========
+// ========== 加载RSA库（(1,eval)确保全局作用域） ==========
 async function loadJsrsasign() {
   try {
-    // 先加载CryptoJS（jsrsasign-part.js 依赖 CryptoJS 全局变量）
-    if (!globalThis.CryptoJS) {
-      const cjCode = $.getdata('CryptoJS_code');
-      if (cjCode) {
-        $.log(`✅ 使用缓存的CryptoJS`);
-        (new Function(cjCode))(); // 全局作用域执行
-        if (!CryptoJS) {
-          $.log(`⚠️ CryptoJS缓存失效，重新下载...`);
-          $.setdata('', 'CryptoJS_code');
-        }
-      }
+    // 步骤1: 加载CryptoJS（jsrsasign-part.js运行时依赖CryptoJS全局变量）
+    let cjCode = $.getdata('CryptoJS_code');
+    if (cjCode) {
+      try {
+        (1, eval)(cjCode); // indirect eval → 全局作用域
+        if (CryptoJS) $.log(`✅ 使用缓存的CryptoJS`);
+      } catch(e) { cjCode = null; };
     }
     if (!CryptoJS) {
       $.log(`🚀 下载CryptoJS...`);
-      const cj = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
-      if (cj) {
-        $.setdata(cj, 'CryptoJS_code');
-        (new Function(cj))(); // 全局作用域执行
-        $.log(`✅ CryptoJS加载成功`);
+      cjCode = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
+      if (cjCode && cjCode.length > 10000) {
+        $.setdata(cjCode, 'CryptoJS_code');
+        (1, eval)(cjCode);
       }
     }
-    if (!CryptoJS) { $.logErr(`CryptoJS加载失败`); return false; }
+    if (!CryptoJS) throw new Error('CryptoJS加载后仍然undefined');
 
-    // Jsrsasign：强制清缓存确保完整
+    // 步骤2: 加载jsrsasign（强制清缓存重新下载）
     $.setdata('', 'Jsrsasign_code');
-    $.log(`🚀 下载Jsrsasign (96KB)...`);
+    $.log(`🚀 下载jsrsasign (96KB)...`);
     const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/jsrsasign-part.js');
     if (!fn || fn.length < 50000) throw new Error('下载不完整，请检查网络');
     $.setdata(fn, 'Jsrsasign_code');
-    (new Function(fn))(); // 全局作用域执行
-    if (typeof globalThis.KEYUTIL === 'undefined') throw new Error('KEYUTIL未定义');
-    $.log(`✅ Jsrsasign加载成功`);
+    (1, eval)(fn);
+    if (typeof KEYUTIL === 'undefined') throw new Error('KEYUTIL未定义');
+    $.log(`✅ RSA库加载成功`);
     return true;
   } catch (e) {
     $.logErr(`加载RSA库失败: ${e}`);

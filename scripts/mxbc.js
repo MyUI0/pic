@@ -22,23 +22,45 @@ hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
 // ================================================================
 // 环境检测
 // ================================================================
-const isRequest = typeof $request != "undefined";      // rewrite 模式
-const isSurge    = typeof $httpClient != "undefined";  // Surge
-const isQuanX    = typeof $task      != "undefined";   // Quantumult X
-const isNode     = typeof require   == "function";     // Node.js
+const isRequest = typeof $request  != "undefined";  // rewrite 模式
+const isSurge   = typeof $httpClient != "undefined" && typeof $task === "undefined"; // Surge
+const isQuanX   = typeof $task       != "undefined"; // Quantumult X
+const isNode    = typeof require     == "function";  // Node.js
+
+// ================================================================
+// 调试：打印 $task.fetch 返回的原始结构（仅第一次）
+// ================================================================
+if (isQuanX && !window.__mxbc_debug_printed) {
+  window.__mxbc_debug_printed = true;
+  $task.fetch({ url: 'https://httpbin.org/get' }).then(r => {
+    console.log('[mxbc 调试] $task.fetch 原始返回 keys:', Object.keys(r));
+    console.log('[mxbc 调试] $task.fetch body type:', typeof r.body, r.body);
+    console.log('[mxbc 调试] $task.fetch responseText type:', typeof r.responseText, (r.responseText || '').slice(0, 100));
+    console.log('[mxbc 调试] $task.fetch status:', r.status);
+  }).catch(e => console.log('[mxbc 调试] fetch error:', e));
+}
 
 // ================================================================
 // $httpClient polyfill (QX task 模式 → $task.fetch)
+//   QX task 模式下无 $httpClient，用 $task.fetch 模拟
+//   rewrite 模式下原生 $httpClient 存在，不生效
 // ================================================================
-if (isQuanX && !isSurge && typeof $httpClient === 'undefined') {
-  const _fetch = (method, opts, cb) => {
+if (isQuanX && typeof $httpClient === 'undefined') {
+  const _fetch = (opts, cb) => {
     $task.fetch(opts).then(r => {
-      cb(null, { status: r.status, headers: r.headers || {}, body: r.body || '' });
+      // QX task 模式的 $task.fetch 返回结构
+      // 常见字段: {status, headers, body, responseText}
+      // body 可能为 {} 空对象，responseText 才是实际内容
+      let raw = r.body;
+      if (!raw || raw === {} || typeof raw !== 'string') {
+        raw = r.responseText || '';
+      }
+      cb(null, { status: r.status || 0, headers: r.headers || {}, body: raw || '' });
     }).catch(e => cb(e, { status: 0, headers: {}, body: '' }));
   };
   $httpClient = {
-    get(opts, cb)  { _fetch('GET',  opts, cb); },
-    post(opts, cb) { _fetch('POST', opts, cb); }
+    get(opts, cb)  { _fetch(opts, cb); },
+    post(opts, cb) { _fetch(opts, cb); }
   };
 }
 
@@ -59,7 +81,7 @@ const K = {
 };
 
 // ================================================================
-// 存储 (兼容 QX / Surge / Node)
+// 存储 (兼容 QX / Surge)
 // ================================================================
 const $read = key => {
   if (isQuanX) try { return $prefs.valueForKey(key) } catch(e) {}
@@ -72,7 +94,7 @@ const $write = (key, val) => {
 };
 
 // ================================================================
-// 兼容辅助函数（避开 $ 前缀，防止与全局变量冲突）
+// $done 兼容
 // ================================================================
 const callDone = val => {
   if (isQuanX) return $done(val);
@@ -99,25 +121,27 @@ function scToObj(sc) {
 }
 
 // ================================================================
-// HTTP (兼容 QX rewrite / task / Surge)
+// HTTP
 // ================================================================
 function http(method, url, hdrs, body) {
   return new Promise((resolve, reject) => {
     const opts = { url, headers: hdrs || {}, timeout: 15 };
     if (body !== undefined) opts.body = body;
 
-    // --- QX 环境 ---
     if (isQuanX) {
-      // QX task 模式：$task.fetch（此时无原生 $httpClient）
+      // QX task 模式: $task.fetch（无原生 $httpClient）
       if (typeof $httpClient === 'undefined' || typeof $httpClient.get === 'undefined') {
         $task.fetch(opts).then(r => {
-          // $task.fetch 返回 {status, headers, body} 或 {status, headers, responseText}
-          const respBody = r.body || r.responseText || '';
-          resolve({ status: r.status || 0, headers: r.headers || {}, body: respBody });
+          let raw = r.body;
+          // 兼容: body 可能是空对象或 undefined，实际内容在 responseText
+          if (!raw || typeof raw !== 'string' || raw === '{}') {
+            raw = r.responseText || '';
+          }
+          resolve({ status: r.status || 0, headers: r.headers || {}, body: raw });
         }).catch(e => reject(e));
         return;
       }
-      // QX rewrite 模式：原生 $httpClient
+      // QX rewrite 模式: 原生 $httpClient
       $httpClient[method === 'GET' ? 'get' : 'post'](opts, (err, resp, data) => {
         if (err) return reject(err);
         resolve({ status: resp.status, headers: resp.headers, body: data || '' });
@@ -125,7 +149,6 @@ function http(method, url, hdrs, body) {
       return;
     }
 
-    // --- Surge 环境 ---
     if (isSurge) {
       $httpClient[method === 'GET' ? 'get' : 'post'](opts, (err, resp, data) => {
         if (err) return reject(err);
@@ -138,10 +161,10 @@ function http(method, url, hdrs, body) {
   });
 }
 const $get  = (url, hdrs) => http('GET',  url, hdrs);
-const $post = (url, b, hdrs) => http('POST', url, hdrs, b);
+const $post = (url, b,  hdrs) => http('POST', url, hdrs, b);
 
 // ================================================================
-// script-request-header — 捕获 token + duiba URL
+// script-request-header — 被动捕获
 // ================================================================
 function onRequest() {
   const url = $request.url;
@@ -165,7 +188,7 @@ function onRequest() {
 }
 
 // ================================================================
-// script-response-body — 捕获 autoLogin cookie
+// script-response-body — 被动捕获 cookie
 // ================================================================
 function onResponse() {
   const url = $request.url;
@@ -187,24 +210,21 @@ function onResponse() {
 }
 
 // ================================================================
-// 领币逻辑（只需 cookie，无需 sign）
+// 领币（只需 cookie，无需 sign）
 // ================================================================
 async function doReward(ck) {
   const ref = `https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}&from=login&spm=76177.1.1.1`;
   const hdrs = { 'User-Agent': UA, 'Referer': ref, 'Cookie': ck };
 
   // 1. 访问雪王铺
-  console.log('[mxbc] 🏪 访问雪王铺...');
   await $get(`https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}&from=login&spm=76177.1.1.1`, hdrs);
 
   // 2. 查余额
-  console.log('[mxbc] 💰 查银两余额...');
   const b1 = await $get(`https://${D.ACTIVITY}/globalReward/accountBalance`, hdrs);
   const bd1 = JSON.parse(b1.body);
   const bal = (bd1.data && bd1.data.balance) || 0;
 
-  // 3. 领币（POST 空 body）
-  console.log('[mxbc] 🎁 访问雪王铺领币...');
+  // 3. 领币
   const vr = await $post(`https://${D.ACTIVITY}/globalReward/visitMall`, null, hdrs);
   const vd = JSON.parse(vr.body);
 
@@ -237,7 +257,7 @@ async function doReward(ck) {
   // --- 有缓存 cookie → 直接领币 ---
   let ck = $read(K.CK);
   if (ck) {
-    console.log('[mxbc] 💾 有缓存 cookie，直接领币...');
+    console.log('[mxbc] 💾 有缓存 cookie');
     try {
       await doReward(ck);
       callDone();
@@ -248,7 +268,7 @@ async function doReward(ck) {
   }
 
   // --- 缓存失效 → 需刷新 ---
-  const token   = $read(K.TOKEN);
+  const token = $read(K.TOKEN);
   const duibaUrl = $read(K.DUIBA);
 
   if (!duibaUrl || !token) {
@@ -267,10 +287,15 @@ async function doReward(ck) {
     // 请求 duiba URL → 获取 loginUrl
     console.log('[mxbc] 📡 请求 duiba 登录链接...');
     const dRes = await $get(duibaUrl, authH);
+
+    // 调试：打印原始响应
+    console.log(`[mxbc] 调试 duiba 响应 status: ${dRes.status}`);
+    console.log(`[mxbc] 调试 duiba body 长度: ${(dRes.body || '').length}`);
+    console.log(`[mxbc] 调试 duiba body 前100字符: ${(dRes.body || '').slice(0, 100)}`);
+
     const dData = JSON.parse(dRes.body);
 
     if (dData.code !== 0 || !dData.data?.loginUrl) {
-      // duiba URL sign 过期，清空缓存
       $write(K.DUIBA, '');
       console.log(`[mxbc] ❌ duiba 异常: ${dData.msg || '未知错误'}`);
       $notify('🍦 蜜雪冰城', '❌ duiba 已过期', `${dData.msg || '未知错误'}\n请打开蜜雪冰城小程序刷新`);
@@ -294,7 +319,6 @@ async function doReward(ck) {
       throw new Error('autoLogin 返回的 cookie 不完整');
     }
 
-    // 缓存新 cookie
     const newCk = Object.entries(cookies)
       .filter(([_, v]) => v)
       .map(([k, v]) => `${k}=${v}`)

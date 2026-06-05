@@ -1,7 +1,7 @@
 /*
 ==================================================
   蜜雪冰城 - 访问雪王铺领币
-  Quantumult X 签到脚本 v3.6
+  Quantumult X 签到脚本 v3.5
   ⚡ 单文件 · 无需 RSA · 自动 polyfill
 ==================================================
 
@@ -26,19 +26,6 @@ const isRequest = typeof $request  != "undefined";  // rewrite 模式
 const isSurge   = typeof $httpClient != "undefined" && typeof $task === "undefined"; // Surge
 const isQuanX   = typeof $task       != "undefined"; // Quantumult X
 const isNode    = typeof require     == "function";  // Node.js
-
-// ================================================================
-// 调试：打印 $task.fetch 返回的原始结构（仅第一次）
-// ================================================================
-if (isQuanX && !window.__mxbc_debug_printed) {
-  window.__mxbc_debug_printed = true;
-  $task.fetch({ url: 'https://httpbin.org/get' }).then(r => {
-    console.log('[mxbc 调试] $task.fetch 原始返回 keys:', Object.keys(r));
-    console.log('[mxbc 调试] $task.fetch body type:', typeof r.body, r.body);
-    console.log('[mxbc 调试] $task.fetch responseText type:', typeof r.responseText, (r.responseText || '').slice(0, 100));
-    console.log('[mxbc 调试] $task.fetch status:', r.status);
-  }).catch(e => console.log('[mxbc 调试] fetch error:', e));
-}
 
 // ================================================================
 // $httpClient polyfill (QX task 模式 → $task.fetch)

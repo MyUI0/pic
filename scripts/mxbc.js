@@ -1,7 +1,7 @@
 /*
 ==================================================
   蜜雪冰城 - 访问雪王铺领币
-  Quantumult X 签到脚本 v3.2
+  Quantumult X 签到脚本 v3.3
   ⚡ 单文件 · 无需 RSA 签名 · 兼容 task 模式
 ==================================================
 
@@ -25,9 +25,9 @@
 
 【配置】
 [rewrite_local]
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
-^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header mxbc.js
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header mxbc.js
+^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body mxbc.js
 
 [mitm]
 hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
@@ -43,6 +43,7 @@ hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
 //    QX rewrite 模式提供 $httpClient，但 task 模式只有 $task
 //    此 polyfill 让脚本在两种环境下都能正常运行
 // ================================================================
+// $httpClient polyfill (task 模式用 $task.fetch 替代)
 if (typeof $httpClient === 'undefined') {
   $httpClient = {
     get(opts, cb) {
@@ -50,6 +51,15 @@ if (typeof $httpClient === 'undefined') {
     },
     post(opts, cb) {
       $task.fetch(opts).then(r => cb(null, r, r.body || '')).catch(e => cb(e, null, ''));
+    }
+  };
+}
+
+// $notification polyfill (task 模式不可用，降级为 console.log)
+if (typeof $notification === 'undefined') {
+  $notification = {
+    post(title, sub, body) {
+      console.log(`[通知] ${title} | ${sub} | ${body}`);
     }
   };
 }

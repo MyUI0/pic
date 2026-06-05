@@ -1,7 +1,7 @@
 /*
 ==================================================
   蜜雪冰城 - 访问雪王铺领币
-  Quantumult X 签到脚本 v3.5
+  Quantumult X 签到脚本 v3.6
   ⚡ 单文件 · 无需 RSA · 自动 polyfill
 ==================================================
 
@@ -14,7 +14,7 @@
 hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
 
 [task_local]
-0 9 * * * mxbc.js, tag=蜜雪冰城-雪王铺签到, enabled=true
+0 9 * * * https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js, tag=蜜雪冰城-雪王铺签到, enabled=true
 
 ==================================================
 */

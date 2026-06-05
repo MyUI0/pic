@@ -10,8 +10,6 @@ on:
         required: false
         default: false
         type: boolean
-  push:
-    branches: [ main ]
 
 jobs:
   update:
@@ -81,37 +79,20 @@ jobs:
           keep_files: true
           force_orphan: true
 
-      - name: 🔔 发送最终结果通知
-        if: always() && steps.notify-init.outputs.skip_bark == 'false' && github.event.inputs.send_test != 'true'
+      - name: 🔔 发送更新成功通知（仅当订阅真正更新时）
+        if: steps.commit-changes.outputs.has_changes == 'true' && steps.notify-init.outputs.skip_bark == 'false'
         run: |
           DATE="${{ steps.update-feeds.outputs.original_date }}"
-          if [ "${{ steps.update-feeds.outputs.update_status }}" = "success" ]; then
-            if [ "${{ steps.commit-changes.outputs.has_changes }}" = "true" ]; then
-              TITLE="✅ 订阅已更新"
-              BODY="V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }}行 | Clash: ${{ steps.update-feeds.outputs.clash_count }}行\n源日期: $DATE"
-              SOUND="paymentsuccess"
-              BADGE=1
-            else
-              TITLE="📭 订阅无更新"
-              BODY="源日期: $DATE"
-              SOUND="default"
-              BADGE=0
-            fi
-          else
-            TITLE="❌ 更新失败"
-            BODY="请检查源链接"
-            SOUND="alarm"
-            BADGE=99
-          fi
-
+          TITLE="✅ 订阅已更新"
+          BODY="V2Ray: ${{ steps.update-feeds.outputs.v2ray_count }}行 | Clash: ${{ steps.update-feeds.outputs.clash_count }}行\n源日期: $DATE"
           curl -s -X POST "https://api.day.app/${{ secrets.BARK_DEVICE_KEY }}" \
             -H "Content-Type: application/json" \
             -d "{
               \"title\":\"$TITLE\",
               \"body\":\"$BODY\",
               \"group\":\"subscription-update\",
-              \"sound\":\"$SOUND\",
-              \"badge\":$BADGE,
+              \"sound\":\"paymentsuccess\",
+              \"badge\":1,
               \"isArchive\":1,
               \"icon\":\"https://avatars.githubusercontent.com/u/88518685?v=4&size=64\"
             }" --max-time 10 || true

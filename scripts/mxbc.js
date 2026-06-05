@@ -1,7 +1,7 @@
 /*
 ==================================================
   蜜雪冰城 - 访问雪王铺领币
-  Quantumult X 签到脚本 v3.4
+  Quantumult X 签到脚本 v3.5
   ⚡ 单文件 · 无需 RSA · 自动 polyfill
 ==================================================
 
@@ -105,24 +105,36 @@ function http(method, url, hdrs, body) {
   return new Promise((resolve, reject) => {
     const opts = { url, headers: hdrs || {}, timeout: 15 };
     if (body !== undefined) opts.body = body;
-    const cb = (err, resp, data) => {
-      if (err) return reject(new Error(typeof err === 'string' ? err : err.message || String(err)));
-      resolve({ status: resp.status, headers: resp.headers, body: data || '' });
-    };
 
+    // --- QX 环境 ---
     if (isQuanX) {
-      // QX task 模式: $task.fetch
-      if (typeof $httpClient !== 'undefined' && $httpClient.get) {
-        $httpClient[method === 'GET' ? 'get' : 'post'](opts, cb);
-      } else {
-        // QX rewrite 模式
-        $task.fetch(opts).then(r => cb(null, r, r.body || '')).catch(e => cb(e));
+      // QX task 模式：$task.fetch（此时无原生 $httpClient）
+      if (typeof $httpClient === 'undefined' || typeof $httpClient.get === 'undefined') {
+        $task.fetch(opts).then(r => {
+          // $task.fetch 返回 {status, headers, body} 或 {status, headers, responseText}
+          const respBody = r.body || r.responseText || '';
+          resolve({ status: r.status || 0, headers: r.headers || {}, body: respBody });
+        }).catch(e => reject(e));
+        return;
       }
-    } else if (isSurge) {
-      $httpClient[method === 'GET' ? 'get' : 'post'](opts, cb);
-    } else {
-      reject(new Error('未知环境'));
+      // QX rewrite 模式：原生 $httpClient
+      $httpClient[method === 'GET' ? 'get' : 'post'](opts, (err, resp, data) => {
+        if (err) return reject(err);
+        resolve({ status: resp.status, headers: resp.headers, body: data || '' });
+      });
+      return;
     }
+
+    // --- Surge 环境 ---
+    if (isSurge) {
+      $httpClient[method === 'GET' ? 'get' : 'post'](opts, (err, resp, data) => {
+        if (err) return reject(err);
+        resolve({ status: resp.status, headers: resp.headers, body: data || '' });
+      });
+      return;
+    }
+
+    reject(new Error('未知环境'));
   });
 }
 const $get  = (url, hdrs) => http('GET',  url, hdrs);

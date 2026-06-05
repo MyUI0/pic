@@ -25,9 +25,9 @@
 
 【配置】
 [rewrite_local]
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header mxbc.js
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header mxbc.js
-^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body mxbc.js
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
+^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
 
 [mitm]
 hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn

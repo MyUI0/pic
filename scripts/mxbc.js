@@ -29,17 +29,17 @@
 
 [rewrite_local]
 # 拦截 token（必须）
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header mxbc_v3.js
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
 # 拦截 duiba URL 含 sign（必须）
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header mxbc_v3.js
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
 # 拦截 autoLogin 响应 获取 cookie（推荐）
-^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body mxbc_v3.js
+^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
 
 [mitm]
 hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
 
 [task_local]
-0 9 * * * mxbc_v3.js, tag=蜜雪冰城-雪王铺签到, enabled=true
+0 9 * * * https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js, tag=蜜雪冰城-雪王铺签到, enabled=true
 
 ==================================================
 */

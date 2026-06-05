@@ -1,515 +1,329 @@
 /*
-------------------------------------------
-@Name: 蜜雪冰城 访问雪王铺
-@Desc: 每日自动访问雪王铺获取雪王币7
-------------------------------------------
+==================================================
+  蜜雪冰城 - 访问雪王铺领币 v3
+  Quantumult X 签到脚本
+  ⚡ 无需 RSA 签名
+==================================================
 
-⚙️ QX配置：
+工作原理：
+  整个签到流程分两部分：
+  1. mxsa.mxbc.net → 获取 duiba 登录链接（需要 sign）
+  2. 76177-activity.dexfu.cn → 领币操作（只要 cookie，不需要 sign）
+  
+  ❌ 方案A（被否决）：在 QX 中用 JS 做 RSA 签名 → 太复杂
+  ✅ 方案B（本脚本）：通过 rewrite 被动捕获所有必要数据
+  
+  具体做法：
+  - script-request-header 拦截 customer/info → 保存 Access-Token + x-ssos-cid
+  - script-request-header 拦截 duiba/getLoginUrl → 保存完整 URL（含有效 sign）
+  - script-response-body 拦截 autoLogin 302 响应 → 捕获 set-cookie 保存
+  - task 执行时：用缓存的 duiba URL → 拿 loginUrl → 自动登录 → visitMall
+  
+  首次使用流程：
+  1. 开启 QX 配置
+  2. 打开蜜雪冰城微信小程序（进入"我的"页即可）
+  3. 进入"雪王铺"一次
+  4. 以后 task 每天自动签到
 
-[MITM]
+配置：
+
+[rewrite_local]
+# 拦截 token（必须）
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header mxbc_v3.js
+# 拦截 duiba URL 含 sign（必须）
+^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header mxbc_v3.js
+# 拦截 autoLogin 响应 获取 cookie（推荐）
+^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body mxbc_v3.js
+
+[mitm]
 hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
 
-[Script]
-# 获取Token（进入小程序「我的」页面触发）
-http-response ^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info script-path=https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js, requires-body=true, timeout=60, tag=蜜雪冰城获取token
-
-# 定时任务（每天8点）
 [task_local]
-0 8 * * * https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js, tag=蜜雪冰城访问雪王铺
+0 9 * * * mxbc_v3.js, tag=蜜雪冰城-雪王铺签到, enabled=true
+
+==================================================
 */
 
-const $ = new Env("蜜雪冰城");
+// ====== 常量 ======
+const DOMAIN = {
+  ACTIVITY: '76177-activity.dexfu.cn',
+  MXSA: 'mxsa.mxbc.net'
+};
+const SKIN_ID = '216593';
+const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70(0x1800463a) NetType/WIFI Language/zh_CN';
 
-const CK_NAME = "mxbc_data";     // 持久化存储key名
-const users = (() => {
-  try {
-    const raw = $.getdata(CK_NAME);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-})();
+const K = {
+  TOKEN: 'mxbc_token_v3',
+  CID: 'mxbc_cid_v3',
+  DUIBA: 'mxbc_duiba_v3',
+  COOKIE: 'mxbc_ck_v3'
+};
 
-$.notifyMsg = [];
-
-// ========== 基础工具 ==========
-function ts13() { return Date.now().toString(); }
-
-// 请求包装
-async function req(opts) {
-  return new Promise((resolve, reject) => {
-    const { url, method = 'GET', headers = {}, body, resultType, followRedirect, timeout = 15000 } = opts;
-    const options = { url, method, headers, timeout, followRedirect };
-    if (body) options.body = body;
-    $.log(`[${method}] ${url.replace(/\?.*/, '')}`);
-    $task.fetch(options).then(
-      resp => resolve(resultType === 'all' ? resp : resp.body),
-      err => reject(err)
-    );
-  });
-}
-
-// ========== RSA-SHA256 签名 ==========
-function getSHA256withRSA(content) {
-  const keyStr = `-----BEGIN PRIVATE KEY-----
-MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCtypUdHZJKlQ9L
-L6lIJSphnhqjke7HclgWuWDRWvzov30du235cCm13mqJ3zziqLCwstdQkuXo9sOP
-Ih94t6nzBHTuqYA1whrUnQrKfv9X4/h3QVkzwT+xWflE+KubJZoe+daLKkDeZjVW
-nUku8ov0E5vwADACfntEhAwiSZUALX9UgNDTPbj5ESeII+VztZ/KOFsRHMTfDb1G
-IR/dAc1mL5uYbh0h2Fa/fxRPgf7eJOeWGiygesl3CWj0Ue13qwX9PcG7klJXfToI
-576MY+A7027a0aZ49QhKnysMGhTdtFCksYG0lwPz3bIR16NvlxNLKanc2h+ILTFQ
-bMW/Y3DRAgMBAAECggEBAJGTfX6rE6zX2bzASsu9HhgxKN1VU6/L70/xrtEPp4SL
-SpHKO9/S/Y1zpsigr86pQYBx/nxm4KFZewx9p+El7/06AX0djOD7HCB2/+AJq3iC
-5NF4cvEwclrsJCqLJqxKPiSuYPGnzji9YvaPwArMb0Ff36KVdaHRMw58kfFys5Y2
-HvDqh4x+sgMUS7kSEQT4YDzCDPlAoEFgF9rlXnh0UVS6pZtvq3cR7pR4A9hvDgX9
-wU6zn1dGdy4MEXIpckuZkhwbqDLmfoHHeJc5RIjRP7WIRh2CodjetgPFE+SV7Sdj
-ECmvYJbet4YLg+Qil0OKR9s9S1BbObgcbC9WxUcrTgECgYEA/Yj8BDfxcsPK5ebE
-9N2teBFUJuDcHEuM1xp4/tFisoFH90JZJMkVbO19rddAMmdYLTGivWTyPVsM1+9s
-tq/NwsFJWHRUiMK7dttGiXuZry+xvq/SAZoitgI8tXdDXMw7368vatr0g6m7ucBK
-jZWxSHjK9/KVquVr7BoXFm+YxaECgYEAr3sgVNbr5ovx17YriTqe1FLTLMD5gPrz
-ugJj7nypDYY59hLlkrA/TtWbfzE+vfrN3oRIz5OMi9iFk3KXFVJMjGg+M5eO9Y8m
-14e791/q1jUuuUH4mc6HttNRNh7TdLg/OGKivE+56LEyFPir45zw/dqwQM3jiwIz
-yPz/+bzmfTECgYATxrOhwJtc0FjrReznDMOTMgbWYYPJ0TrTLIVzmvGP6vWqG8rI
-S8cYEA5VmQyw4c7G97AyBcW/c3K1BT/9oAj0wA7wj2JoqIfm5YPDBZkfSSEcNqqy
-5Ur/13zUytC+VE/3SrrwItQf0QWLn6wxDxQdCw8J+CokgnDAoehbH6lTAQKBgQCE
-67T/zpR9279i8CBmIDszBVHkcoALzQtU+H6NpWvATM4WsRWoWUx7AJ56Z+joqtPK
-G1WztkYdn/L+TyxWADLvn/6Nwd2N79MyKyScKtGNVFeCCJCwoJp4R/UaE5uErBNn
-OH+gOJvPwHj5HavGC5kYENC1Jb+YCiEDu3CB0S6d4QKBgQDGYGEFMZYWqO6+LrfQ
-ZNDBLCI2G4+UFP+8ZEuBKy5NkDVqXQhHRbqr9S/OkFu+kEjHLuYSpQsclh6XSDks
-5x/hQJNQszLPJoxvGECvz5TN2lJhuyCupS50aGKGqTxKYtiPHpWa8jZyjmanMKnE
-dOGyw/X4SFyodv8AEloqd81yGg==
------END PRIVATE KEY-----`;
-  const key = KEYUTIL.getKey(keyStr);
-  const sig = new KJUR.crypto.Signature({ alg: 'SHA256withRSA' });
-  sig.init(key);
-  sig.updateString(content);
-  return hextob64u(sig.sign());
-}
-
-// ========== 获取用户信息 ==========
-async function getUserInfo(token) {
-  const t = ts13();
-  const signContent = `appId=d82be6bbc1da11eb9dd000163e122ecb&t=${t}`;
-  const sign = getSHA256withRSA(signContent);
-  const url = `https://mxsa.mxbc.net/api/v1/customer/info?appId=d82be6bbc1da11eb9dd000163e122ecb&t=${t}&sign=${sign}`;
-  const resp = await req({
-    url,
-    headers: {
-      "app": "mxbc",
-      "appchannel": "xiaomi",
-      "appversion": "3.0.3",
-      "Access-Token": token,
-      "Host": "mxsa.mxbc.net",
-      "User-Agent": "okhttp/4.4.1"
-    }
-  });
-  const json = typeof resp === 'string' ? JSON.parse(resp) : resp;
-  if (json?.code === 0) {
-    return { mobile: json.data.mobilePhone, point: json.data.customerPoint };
-  }
-  $.log(`获取用户信息失败: ${json?.msg || JSON.stringify(json)}`);
+// ====== 存储 ======
+function read(k) {
+  try { return $prefs.valueForKey(k) } catch(e) {}
+  try { return $persistentStore.read(k) } catch(e) {}
   return null;
 }
-
-// ========== 获取兑吧登录URL ==========
-async function getLoginUrl(token) {
-  const t = ts13();
-  const dbredirect = "https://76177-activity.dexfu.cn/chw/visual-editor/skins?id=216593";
-  const signContent = `appId=d82be6bbc1da11eb9dd000163e122ecb&dbredirect=${encodeURIComponent(dbredirect)}&t=${t}`;
-  const sign = getSHA256withRSA(signContent);
-  const url = `https://mxsa.mxbc.net/api/v1/duiba/getLoginUrl?appId=d82be6bbc1da11eb9dd000163e122ecb&dbredirect=${encodeURIComponent(dbredirect)}&t=${t}&sign=${sign}`;
-  const resp = await req({
-    url,
-    headers: {
-      "app": "mxbc",
-      "appchannel": "xiaomi",
-      "appversion": "3.0.3",
-      "Access-Token": token,
-      "Host": "mxsa.mxbc.net",
-      "User-Agent": "okhttp/4.4.1"
-    }
-  });
-  const json = typeof resp === 'string' ? JSON.parse(resp) : resp;
-  if (json?.data?.loginUrl) {
-    $.log(`✅ 获取兑吧登录URL成功`);
-    return json.data.loginUrl;
-  }
-  $.log(`获取登录URL失败: ${JSON.stringify(json)}`);
-  return null;
+function write(k, v) {
+  try { $prefs.setValueForKey(v, k) } catch(e) {}
+  try { $persistentStore.write(v, k) } catch(e) {}
 }
 
-// ========== 自动登录获取活动session（cookie） ==========
-async function getActivitySession(loginUrl) {
-  // 步骤1: 访问loginUrl → 302重定向 + set-cookie
-  const resp = await req({
-    url: loginUrl,
-    followRedirect: false,
-    resultType: "all",
-    headers: {
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Host': '76177-activity.dexfu.cn',
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70',
-      'Accept-Language': 'zh-CN,zh-Hans;q=0.9'
+// ====== 工具函数 ======
+function buildCookieFromSC(setCookieHeaders) {
+  const arr = Array.isArray(setCookieHeaders) ? setCookieHeaders : (setCookieHeaders ? [setCookieHeaders] : []);
+  const parts = [];
+  for (const sc of arr) {
+    const eq = sc.indexOf('=');
+    if (eq < 0) continue;
+    const semi = sc.indexOf(';', eq);
+    const val = sc.slice(eq + 1, semi > 0 ? semi : sc.length).trim();
+    if (val && val !== '""' && val !== "''") {
+      parts.push(sc.slice(0, semi > 0 ? semi : sc.length));
     }
+  }
+  return parts.join('; ');
+}
+
+function parseCookiesToObj(setCookieHeaders) {
+  const arr = Array.isArray(setCookieHeaders) ? setCookieHeaders : (setCookieHeaders ? [setCookieHeaders] : []);
+  const obj = {};
+  for (const sc of arr) {
+    const eq = sc.indexOf('=');
+    if (eq < 0) continue;
+    const name = sc.slice(0, eq).trim();
+    const semi = sc.indexOf(';', eq);
+    const val = sc.slice(eq + 1, semi > 0 ? semi : sc.length).trim();
+    if (val && val !== '""' && val !== "''") {
+      obj[name] = val;
+    }
+  }
+  return obj;
+}
+
+function http(method, url, hdrs, body) {
+  return new Promise((res, rej) => {
+    const opts = { url, headers: hdrs || {}, timeout: 15 };
+    if (body !== undefined) opts.body = body;
+    const cb = (e, r, d) => e ? rej(e) : res({ status: r.status || r.statusCode, headers: r.headers, body: d || r.body || '' });
+    $httpClient[method === 'GET' ? 'get' : 'post'](opts, cb);
   });
+}
+const $get = (u, h) => http('GET', u, h);
+const $post = (u, b, h) => http('POST', u, h, b);
 
-  let headers = resp?.headers || {};
-  // key全部转小写
-  const lcHeaders = {};
-  for (const [k, v] of Object.entries(headers)) {
-    lcHeaders[k.toLowerCase()] = v;
+// ====== ⚡ 拦截请求 (script-request-header) ======
+function onRequest() {
+  const url = $request.url;
+  const h = $request.headers;
+  
+  const token = h['Access-Token'];
+  if (token) {
+    const old = read(K.TOKEN);
+    if (token !== old) {
+      write(K.TOKEN, token);
+      console.log(`[mxbc] ✅ Token 更新: ${token.slice(0, 20)}...`);
+    }
   }
-
-  // 提取set-cookie
-  let cookies = lcHeaders['set-cookie'] || '';
-  if (Array.isArray(cookies)) cookies = cookies.join('; ');
-  const cookieKeys = ['wdata4', 'w_ts', '_ac', 'tokenId', 'wdata3', 'dcustom', 'createdAtToday', 'isNotLoginUser'];
-
-  // 提取关键cookie
-  let cookieParts = [];
-  for (const key of cookieKeys) {
-    const re = new RegExp(`${key}=[^;]+`);
-    const m = cookies.match(re);
-    if (m) cookieParts.push(m[0]);
+  
+  const cid = h['x-ssos-cid'];
+  if (cid) write(K.CID, cid);
+  
+  // 拦截 duiba URL（含完整 sign 参数）
+  if (url.includes('duiba/getLoginUrl')) {
+    write(K.DUIBA, url);
+    console.log('[mxbc] ✅ duiba URL 已缓存');
   }
+  
+  $done({});
+}
 
-  // 如果没cookie（可能302直接跳了），用location再试
-  if (cookieParts.length < 3) {
-    const location = lcHeaders['location'];
-    if (location) {
-      $.log(`ℹ️ 登录URL重定向至: ${location}`);
-      const finalUrl = location.startsWith('http') ? location : `https://76177-activity.dexfu.cn${location}`;
-      const resp2 = await req({
-        url: finalUrl,
-        followRedirect: false,
-        resultType: "all",
-        headers: {
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Host': '76177-activity.dexfu.cn',
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70',
-          'Accept-Language': 'zh-CN,zh-Hans;q=0.9'
-        }
-      });
-      const h2 = resp2?.headers || {};
-      const lc2 = {};
-      for (const [k, v] of Object.entries(h2)) lc2[k.toLowerCase()] = v;
-      let cookies2 = lc2['set-cookie'] || '';
-      if (Array.isArray(cookies2)) cookies2 = cookies2.join('; ');
-      cookieParts = [];
-      for (const key of cookieKeys) {
-        const re = new RegExp(`${key}=[^;]+`);
-        const m = cookies2.match(re);
-        if (m) cookieParts.push(m[0]);
+// ====== ⚡ 拦截响应 (script-response-body) 捕获 autoLogin 的 cookie ======
+function onResponse() {
+  const url = $request.url;
+  
+  if (url.includes('autoLogin/autologin')) {
+    const sc = $response.headers['Set-Cookie'] || $response.headers['set-cookie'];
+    if (sc) {
+      const cookieStr = buildCookieFromSC(sc);
+      // 检查是否拿到关键 cookie
+      if (cookieStr.includes('tokenId=') || cookieStr.includes('wdata4=')) {
+        write(K.COOKIE, cookieStr);
+        console.log('[mxbc] ✅ cookie 已从 autoLogin 捕获并缓存');
       }
     }
   }
-
-  if (cookieParts.length < 3) {
-    $.log(`⛔️ 获取活动cookie不足: ${cookieParts.join('; ')}`);
-    return null;
-  }
-
-  const session = cookieParts.join('; ');
-  $.log(`✅ 获取活动Session成功`);
-  return session;
+  
+  $done({});
 }
 
-// ========== 访问雪王铺页面 ==========
-async function visitPage(session) {
-  const resp = await req({
-    url: 'https://76177-activity.dexfu.cn/chw/visual-editor/skins?id=216593&from=login&spm=76177.1.1.1',
-    resultType: 'all',
-    headers: {
-      'Cookie': session,
-      'Host': '76177-activity.dexfu.cn',
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
-      'Connection': 'keep-alive'
+// ====== 🏪 访问雪王铺 + 领币（只需 cookie，无需 sign） ======
+async function doReward(cookieStr) {
+  const ref = `https://${DOMAIN.ACTIVITY}/chw/visual-editor/skins?id=${SKIN_ID}&from=login&spm=76177.1.1.1`;
+  const hdrs = {
+    'User-Agent': UA,
+    'Referer': ref,
+    'Cookie': cookieStr
+  };
+  
+  // 1. 访问雪王铺
+  console.log('[mxbc] 🏪 访问雪王铺...');
+  await $get(`https://${DOMAIN.ACTIVITY}/chw/visual-editor/skins?id=${SKIN_ID}&from=login&spm=76177.1.1.1`, hdrs);
+  
+  // 2. 查余额
+  console.log('[mxbc] 💰 查银两...');
+  const b1 = await $get(`https://${DOMAIN.ACTIVITY}/globalReward/accountBalance`, hdrs);
+  const bd1 = JSON.parse(b1.body);
+  const balance = bd1.data?.balance ?? 0;
+  const balanceStatus = bd1.data?.status ?? 0;
+  console.log(`[mxbc]   余额: ${balance} | status: ${balanceStatus}`);
+  
+  // 3. 领币
+  console.log('[mxbc] 🎁 访问雪王铺领币...');
+  const v = await $post(`https://${DOMAIN.ACTIVITY}/globalReward/visitMall`, null, hdrs);
+  const vd = JSON.parse(v.body);
+  
+  let msg = '';
+  let earned = 0;
+  
+  if (vd.success) {
+    msg = '✅ 领币成功';
+    earned = 10; // 雪王铺每次访问+10 (经验值)
+  } else {
+    const desc = vd.desc || '';
+    msg = desc.includes('已') ? '✅ 今日已领取' : `⚠️ ${desc}`;
+  }
+  
+  // 再查余额确认
+  await new Promise(r => setTimeout(r, 500));
+  const b2 = await $get(`https://${DOMAIN.ACTIVITY}/globalReward/accountBalance`, hdrs);
+  const bd2 = JSON.parse(b2.body);
+  const balance2 = bd2.data?.balance ?? balance;
+  const diff = balance2 - balance;
+  
+  console.log(`[mxbc] 📊 ${msg} | 银两 ${balance} → ${balance2} ${diff > 0 ? `+${diff}` : diff === 0 ? '(不变)' : `${diff}`}`);
+  
+  const line2 = msg;
+  const line3 = diff > 0 ? `银两 ${balance} → ${balance2} +${diff}🪙` : 
+                diff < 0 ? `银两 ${balance} → ${balance2} ${diff}` :
+                `银两 ${balance2}`;
+  
+  $notification.post('🍦 蜜雪冰城 雪王铺', line2, line3);
+}
+
+// ====== 📋 签到主流程 ======
+async function run() {
+  console.log(`\n[mxbc] ====== 🍦 蜜雪冰城 雪王铺签到 ======\n`);
+  
+  // 优先用缓存的 cookie（不需要 sign 就能做事）
+  let cookie = read(K.COOKIE);
+  if (cookie) {
+    console.log('[mxbc] 💾 有缓存 cookie，尝试直接领币...');
+    try {
+      await doReward(cookie);
+      console.log('[mxbc] ✅ 执行完毕');
+      return;
+    } catch (e) {
+      console.log(`[mxbc] cookie 过期: ${e.message || e}`);
+      // 继续往下走尝试刷新 cookie
     }
-  });
-  const body = typeof resp?.body === 'string' ? resp.body : '';
-  if (body && body.includes('请重新登陆')) {
-    $.log(`⛔️ Session已过期`);
-    return false;
   }
-  $.log(`✅ 访问雪王铺页面成功`);
-  return true;
-}
-
-// ========== 查询余额 ==========
-async function accountBalance(session) {
-  const resp = await req({
-    url: 'https://76177-activity.dexfu.cn/globalReward/accountBalance',
-    headers: {
-      'Cookie': session,
-      'Host': '76177-activity.dexfu.cn',
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70',
-      'Accept': 'application/json, text/plain, */*',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
-      'Referer': 'https://76177-activity.dexfu.cn/chw/visual-editor/skins?id=216593',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Dest': 'empty'
-    }
-  });
-  const json = typeof resp === 'string' ? JSON.parse(resp) : resp;
-  if (json?.success) {
-    const balance = json.data?.balance ?? json.data?.credits ?? 0;
-    $.log(`💰 当前银两余额: ${balance}`);
-    return balance;
+  
+  // 需要获取新的 cookie → 需要 duiba URL（含 sign）
+  const token = read(K.TOKEN);
+  const duibaUrl = read(K.DUIBA);
+  
+  if (!duibaUrl) {
+    $notification.post('🍦 蜜雪冰城', '❌ 缺少数据', '请先打开蜜雪冰城小程序(进入雪王铺页面)');
+    return;
   }
-  return null;
-}
-
-// ========== 访问雪王铺（核心：触发签到领币） ==========
-async function visitMall(session) {
-  const resp = await req({
-    url: 'https://76177-activity.dexfu.cn/globalReward/visitMall',
-    method: 'POST',
-    body: '',
-    headers: {
-      'Cookie': session,
-      'Host': '76177-activity.dexfu.cn',
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70',
-      'Accept': 'application/json, text/plain, */*',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
-      'Referer': 'https://76177-activity.dexfu.cn/chw/visual-editor/skins?id=216593',
-      'Origin': 'https://76177-activity.dexfu.cn',
-      'Content-Type': 'application/json',
-      'Content-Length': '0',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Dest': 'empty'
-    }
-  });
-  const json = typeof resp === 'string' ? JSON.parse(resp) : resp;
-  if (json?.success) {
-    $.log(`✅ 访问雪王铺成功，领取奖励!`);
-    return true;
+  
+  if (!token) {
+    $notification.post('🍦 蜜雪冰城', '❌ 缺少 Token', '请先打开蜜雪冰城小程序');
+    return;
   }
-  $.log(`⚠️ 访问雪王铺返回: ${JSON.stringify(json)}`);
-  return false;
-}
-
-// ========== 获取/刷新Cookie（QX重写抓token） ==========
-async function getCookie() {
+  
+  const cid = read(K.CID) || '';
+  const authH = { 'Content-Type': 'application/json', 'Access-Token': token, 'x-ssos-cid': cid, 'version': '2.8.31', 'User-Agent': UA };
+  
   try {
-    if ($request && $request.method === 'OPTIONS') return;
-    const header = ObjectKeys2LowerCase($request.headers) || {};
-    const body = (() => { try { return JSON.parse($response.body); } catch { return null; } })();
-    const token = header['access-token'];
-    if (!token || !body) {
-      $.log(`⛔️ 获取token失败`);
+    // 请求 duiba/getLoginUrl
+    console.log('[mxbc] 📡 请求 duiba/getLoginUrl...');
+    const dRes = await $get(duibaUrl, authH);
+    const dData = JSON.parse(dRes.body);
+    
+    if (dData.code !== 0 || !dData.data?.loginUrl) {
+      console.log(`[mxbc] ❌ duiba 返回异常: ${JSON.stringify(dData).slice(0, 150)}`);
+      
+      if (dData.code === 401) {
+        // Token 过期，尝试用旧 cookie 兜底
+        if (cookie) {
+          console.log('[mxbc] Token 过期，用旧 cookie 尝试...');
+          await doReward(cookie);
+        } else {
+          $notification.post('🍦 蜜雪冰城', '❌ Token 过期', '请重新打开蜜雪冰城小程序');
+        }
+      } else {
+        $notification.post('🍦 蜜雪冰城', '❌ duiba 登录异常', dData.msg || '请重新打开小程序');
+      }
       return;
     }
-
-    const newUser = {
-      userId: body?.data?.mobilePhone || body?.data?.userId || '',
-      token: token,
-      userName: body?.data?.mobilePhone || ''
-    };
-
-    const users = (() => {
-      try {
-        const raw = $.getdata(CK_NAME);
-        return raw ? JSON.parse(raw) : [];
-      } catch { return []; }
-    })();
-
-    const idx = users.findIndex(u => u.userId === newUser.userId);
-    if (idx >= 0) {
-      users[idx] = newUser;
+    
+    const loginUrl = dData.data.loginUrl;
+    console.log('[mxbc] ✅ 获取 loginUrl 成功');
+    
+    // 自动登录获取 cookie
+    console.log('[mxbc] 🔑 自动登录...');
+    const lRes = await $get(loginUrl, {
+      'User-Agent': UA,
+      'Referer': `https://${DOMAIN.ACTIVITY}/chw/visual-editor/skins?id=${SKIN_ID}`
+    });
+    
+    const sc = lRes.headers['Set-Cookie'] || lRes.headers['set-cookie'];
+    const cookies = parseCookiesToObj(sc);
+    
+    if (!cookies.tokenId && !cookies.wdata4) {
+      console.log('[mxbc] ❌ 自动登录失败：未获取 cookie');
+      // 尝试旧 cookie
+      if (cookie) {
+        await doReward(cookie);
+      } else {
+        $notification.post('🍦 蜜雪冰城', '❌ 登录失败', '获取 cookie 失败');
+      }
+      return;
+    }
+    
+    // 构建并缓存所有 cookie
+    const allParts = [];
+    for (const [k, v] of Object.entries(cookies)) {
+      if (v && v !== '""') allParts.push(`${k}=${v}`);
+    }
+    const newCookie = allParts.join('; ');
+    write(K.COOKIE, newCookie);
+    console.log(`[mxbc] ✅ 登录成功，缓存 cookie (${Object.keys(cookies).length}个)`);
+    
+    // 领币
+    await doReward(newCookie);
+    
+  } catch (e) {
+    console.log(`[mxbc] ❌ 异常: ${e.message || e}`);
+    if (cookie) {
+      console.log('[mxbc] 异常，用旧 cookie 尝试...');
+      try { await doReward(cookie); } catch(e2) {
+        $notification.post('🍦 蜜雪冰城', '❌ 异常', e.message || '签到失败');
+      }
     } else {
-      users.push(newUser);
-    }
-    $.setdata(JSON.stringify(users), CK_NAME);
-    $.log(`✅ Token更新成功: ${newUser.userName}`);
-    $.msg($.name, `🎉 ${newUser.userName || ''} Token更新成功`, '');
-  } catch (e) {
-    $.logErr(e);
-  }
-}
-
-// ========== 主流程 ==========
-async function main() {
-  try {
-    if (!users || !users.length) throw new Error("没有找到账号，请先在微信小程序触发获取token");
-
-    $.log(`⚙️ 共 ${users.length} 个账号`);
-
-    for (let idx = 0; idx < users.length; idx++) {
-      const user = users[idx];
-      if (!user.token) {
-        $.log(`⛔️ 账号${idx+1}: token为空，跳过`);
-        continue;
-      }
-      $.log(`\n🚀 账号${idx+1}: ${user.userName || user.userId || ''}`);
-
-      // 1. 查用户信息获取初始雪王币
-      const userInfo = await getUserInfo(user.token);
-      if (!userInfo) {
-        $.notifyMsg.push(`❌ 账号${idx+1}: token可能已失效`);
-        continue;
-      }
-      const pointB = userInfo.point || 0;
-      $.log(`📊 当前雪王币: ${pointB}`);
-
-      // 2. 获取兑吧登录URL
-      const loginUrl = await getLoginUrl(user.token);
-      if (!loginUrl) continue;
-
-      // 3. 自动登录获取活动session
-      const session = await getActivitySession(loginUrl);
-      if (!session) continue;
-
-      // 4. 访问雪王铺页面
-      const pageOk = await visitPage(session);
-      if (!pageOk) continue;
-
-      // 5. 查活动余额
-      await accountBalance(session);
-
-      // 6. 执行访问雪王铺（领取奖励）
-      await visitMall(session);
-
-      // 7. 重新查用户信息获取最终雪王币
-      await new Promise(r => setTimeout(r, 2000));
-      const userInfoE = await getUserInfo(user.token);
-      const pointE = userInfoE?.point || 0;
-      const gained = pointE - pointB;
-      $.log(`🎉 ${userInfoE?.mobile || user.userName} 本次获得 ${gained} 雪王币，当前 ${pointE} 币`);
-      $.notifyMsg.push(`「${userInfoE?.mobile || user.userName}」+${gained}币，余额${pointE}币`);
-    }
-  } catch (e) {
-    $.logErr(e);
-  } finally {
-    if ($.notifyMsg.length) {
-      $.msg($.name, '签到结果', $.notifyMsg.join('\n'));
+      $notification.post('🍦 蜜雪冰城', '❌ 异常', e.message || '未知错误');
     }
   }
 }
 
-// ========== 加载RSA库（(1,eval)确保全局作用域） ==========
-async function loadJsrsasign() {
-  try {
-    // 步骤1: 加载CryptoJS（jsrsasign-part.js运行时依赖CryptoJS全局变量）
-    let cjCode = $.getdata('CryptoJS_code');
-    if (cjCode) {
-      try {
-        (1, eval)(cjCode); // indirect eval → 全局作用域
-        if (CryptoJS) $.log(`✅ 使用缓存的CryptoJS`);
-      } catch(e) { cjCode = null; };
-    }
-    if (!CryptoJS) {
-      $.log(`🚀 下载CryptoJS...`);
-      cjCode = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/CryptoJS.min.js');
-      if (cjCode && cjCode.length > 10000) {
-        $.setdata(cjCode, 'CryptoJS_code');
-        (1, eval)(cjCode);
-      }
-    }
-    if (!CryptoJS) throw new Error('CryptoJS加载后仍然undefined');
-
-    // 步骤2: 加载jsrsasign（强制清缓存重新下载）
-    $.setdata('', 'Jsrsasign_code');
-    $.log(`🚀 下载jsrsasign (96KB)...`);
-    const fn = await $.getScript('https://cdn.jsdelivr.net/gh/Sliverkiss/QuantumultX@main/Utils/jsrsasign-part.js');
-    if (!fn || fn.length < 50000) throw new Error('下载不完整，请检查网络');
-    $.setdata(fn, 'Jsrsasign_code');
-    (1, eval)(fn);
-    if (typeof KEYUTIL === 'undefined') throw new Error('KEYUTIL未定义');
-    $.log(`✅ RSA库加载成功`);
-    return true;
-  } catch (e) {
-    $.logErr(`加载RSA库失败: ${e}`);
-    return false;
-  }
-}
-
-// ========== 入口 ==========
-(async () => {
-  try {
-    if (typeof $request !== 'undefined') {
-      await getCookie();
-    } else {
-      const loaded = await loadJsrsasign();
-      if (!loaded) { $.msg($.name, '⛔️ 错误', 'RSA库加载失败，请检查网络'); return; }
-      await main();
-    }
-  } catch (e) {
-    $.logErr(e);
-    $.msg($.name, '⛔️ 错误', e.message || e);
-  }
-})()
-  .catch(e => { $.logErr(e); })
-  .finally(() => setTimeout(() => $.done(), 1000));
-
-
-// ========== Env工具 ==========
-function Env(t, e) {
-  return new class {
-    constructor(t, e) {
-      this.name = t;
-      this.logs = [];
-      this.isMute = false;
-      this.logSeparator = '\n';
-      this.startTime = Date.now();
-      Object.assign(this, e);
-      this.log('', `🔔${this.name}, 开始!`);
-    }
-    getEnv() {
-      if (typeof $task !== 'undefined') return 'Quantumult X';
-      if (typeof $environment !== 'undefined') {
-        if ($environment['surge-version']) return 'Surge';
-        if ($environment['stash-version']) return 'Stash';
-      }
-      if (typeof $loon !== 'undefined') return 'Loon';
-      if (typeof $rocket !== 'undefined') return 'Shadowrocket';
-      if (typeof module !== 'undefined' && module.exports) return 'Node.js';
-      return 'unknown';
-    }
-    isNode() { return false; }
-    toObj(t, e = null) { try { return JSON.parse(t); } catch { return e; } }
-    toStr(t, e = null) { try { return JSON.stringify(t); } catch { return e; } }
-    getdata(t) { return $prefs.valueForKey(t); }
-    setdata(t, e) { return $prefs.setValueForKey(t, e); }
-    getScript(t) { return new Promise(r => { this.get({ url: t }, (e, s, b) => r(b)); }); }
-    get(t, cb) {
-      const opts = typeof t === 'string' ? { url: t } : t;
-      $task.fetch(opts).then(resp => cb(null, null, toString(resp.body)), err => cb(err));
-    }
-    log(t) {
-      if (!this.isMute) {
-        this.logs.push(t);
-        console.log(t);
-      }
-    }
-    logErr(t) { this.log(`❌ ${t}`); }
-    msg(t = this.name, e = '', s = '', r) {
-      if (typeof $notify !== 'undefined') {
-        $notify(t, e, s, { 'open-url': r?.['open-url'] });
-      }
-    }
-  }(t, e);
-}
-
-
-
-// ========== 工具 ==========
-function toString(body) {
-    if (typeof body === 'string') return body;
-    if (body instanceof ArrayBuffer) return new Uint8Array(body).reduce((s, b) => s + String.fromCharCode(b), '');
-    if (typeof body === 'object') return JSON.stringify(body);
-    return String(body);
-}
-
-function ObjectKeys2LowerCase(obj) {
-  if (!obj) return {};
-  const r = {};
-  for (const [k, v] of Object.entries(obj)) r[k.toLowerCase()] = v;
-  return r;
+// ====== 🚪 入口 ======
+if (typeof $request !== 'undefined' && $request && typeof $response !== 'undefined' && $response) {
+  onResponse();
+} else if (typeof $request !== 'undefined' && $request) {
+  onRequest();
+} else {
+  (async () => { await run(); $done(); })();
 }

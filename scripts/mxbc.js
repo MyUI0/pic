@@ -1,29 +1,10 @@
 /*
 ==================================================
   蜜雪冰城 - 访问雪王铺领币
-  Quantumult X 签到脚本 v3.3
-  ⚡ 单文件 · 无需 RSA 签名 · 兼容 task 模式
+  Quantumult X 签到脚本 v3.4
+  ⚡ 单文件 · 无需 RSA · 自动 polyfill
 ==================================================
 
-【工作原理】
-  本脚本一个文件同时支持三种模式，QX 自动判断：
-  1. script-request-header  →  被动捕获 token 和 duiba URL
-  2. script-response-body   →  被动捕获 autoLogin 返回的 cookie
-  3. task                   →  主动执行签到（领币）
-
-  关键发现（基于 HAR 抓包）：
-  · 活动域名 76177-activity.dexfu.cn 的所有 API（globalReward/accountBalance、
-    globalReward/visitMall）都不需要 sign，只要 cookie
-  · cookie 在 autoLogin 302 响应中通过 set-cookie 下发
-  · cookie 的 wdata4 / tokenId / wdata3 等关键项 24 小时过期
-
-【首次使用】
-  1. 配好脚本 + 开启 QX
-  2. 打开蜜雪冰城微信小程序 → 进入"我的"页（触发 token 捕获）
-  3. 再进一下"雪王铺"（触发 duiba URL + cookie 捕获）
-  4. 之后每日 task 自动签到
-
-【配置】
 [rewrite_local]
 ^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
 ^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
@@ -39,33 +20,30 @@ hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
 */
 
 // ================================================================
-// 0. $httpClient polyfill for QX task mode
-//    QX rewrite 模式提供 $httpClient，但 task 模式只有 $task
-//    此 polyfill 让脚本在两种环境下都能正常运行
+// 环境检测
 // ================================================================
-// $httpClient polyfill (task 模式用 $task.fetch 替代)
-if (typeof $httpClient === 'undefined') {
+const isRequest = typeof $request != "undefined";      // rewrite 模式
+const isSurge    = typeof $httpClient != "undefined";  // Surge
+const isQuanX    = typeof $task      != "undefined";   // Quantumult X
+const isNode     = typeof require   == "function";     // Node.js
+
+// ================================================================
+// $httpClient polyfill (QX task 模式 → $task.fetch)
+// ================================================================
+if (isQuanX && !isSurge && typeof $httpClient === 'undefined') {
+  const _fetch = (method, opts, cb) => {
+    $task.fetch(opts).then(r => {
+      cb(null, { status: r.status, headers: r.headers || {}, body: r.body || '' });
+    }).catch(e => cb(e, { status: 0, headers: {}, body: '' }));
+  };
   $httpClient = {
-    get(opts, cb) {
-      $task.fetch(opts).then(r => cb(null, r, r.body || '')).catch(e => cb(e, null, ''));
-    },
-    post(opts, cb) {
-      $task.fetch(opts).then(r => cb(null, r, r.body || '')).catch(e => cb(e, null, ''));
-    }
-  };
-}
-
-// $notification polyfill (task 模式不可用，降级为 console.log)
-if (typeof $notification === 'undefined') {
-  $notification = {
-    post(title, sub, body) {
-      console.log(`[通知] ${title} | ${sub} | ${body}`);
-    }
+    get(opts, cb)  { _fetch('GET',  opts, cb); },
+    post(opts, cb) { _fetch('POST', opts, cb); }
   };
 }
 
 // ================================================================
-// 1. 常量
+// 常量
 // ================================================================
 const D = {
   ACTIVITY: '76177-activity.dexfu.cn',
@@ -81,13 +59,28 @@ const K = {
 };
 
 // ================================================================
-// 2. 存储工具
+// 存储 (兼容 QX / Surge / Node)
 // ================================================================
-const $read = k => { try { return $prefs.valueForKey(k) } catch(e){} try { return $persistentStore.read(k) } catch(e){} return null };
-const $write = (k, v) => { try { $prefs.setValueForKey(v, k) } catch(e){} try { $persistentStore.write(v, k) } catch(e){} };
+const $read = key => {
+  if (isQuanX) try { return $prefs.valueForKey(key) } catch(e) {}
+  if (isSurge)  try { return $persistentStore.read(key) } catch(e) {}
+  return null;
+};
+const $write = (key, val) => {
+  if (isQuanX) try { $prefs.setValueForKey(val, key) } catch(e) {}
+  if (isSurge)  try { $persistentStore.write(val, key) } catch(e) {}
+};
 
 // ================================================================
-// 3. Set-Cookie 解析
+// 兼容辅助函数（避开 $ 前缀，防止与全局变量冲突）
+// ================================================================
+const callDone = val => {
+  if (isQuanX) return $done(val);
+  if (isSurge)  return isRequest ? $done(val) : $done();
+};
+
+// ================================================================
+// Set-Cookie 解析
 // ================================================================
 function scToObj(sc) {
   const arr = Array.isArray(sc) ? sc : (sc ? [sc] : []);
@@ -105,37 +98,38 @@ function scToObj(sc) {
   return obj;
 }
 
-function scToStr(sc) {
-  return Object.entries(scToObj(sc)).map(([k, v]) => `${k}=${v}`).join('; ');
-}
-
 // ================================================================
-// 4. HTTP 工具（基于 $httpClient polyfill，兼容 rewrite 和 task）
+// HTTP (兼容 QX rewrite / task / Surge)
 // ================================================================
 function http(method, url, hdrs, body) {
-  return new Promise((res, rej) => {
-    const opts = {
-      url,
-      headers: hdrs || {},
-      timeout: 15
-    };
+  return new Promise((resolve, reject) => {
+    const opts = { url, headers: hdrs || {}, timeout: 15 };
     if (body !== undefined) opts.body = body;
-    const cb = (e, r, d) => {
-      if (e) return rej(new Error(typeof e === 'string' ? e : e.message || String(e)));
-      res({
-        status: r.status || r.statusCode || 0,
-        headers: r.headers || {},
-        body: d || r.body || ''
-      });
+    const cb = (err, resp, data) => {
+      if (err) return reject(new Error(typeof err === 'string' ? err : err.message || String(err)));
+      resolve({ status: resp.status, headers: resp.headers, body: data || '' });
     };
-    $httpClient[method === 'GET' ? 'get' : 'post'](opts, cb);
+
+    if (isQuanX) {
+      // QX task 模式: $task.fetch
+      if (typeof $httpClient !== 'undefined' && $httpClient.get) {
+        $httpClient[method === 'GET' ? 'get' : 'post'](opts, cb);
+      } else {
+        // QX rewrite 模式
+        $task.fetch(opts).then(r => cb(null, r, r.body || '')).catch(e => cb(e));
+      }
+    } else if (isSurge) {
+      $httpClient[method === 'GET' ? 'get' : 'post'](opts, cb);
+    } else {
+      reject(new Error('未知环境'));
+    }
   });
 }
-const $get = (u, h) => http('GET', u, h);
-const $post = (u, b, h) => http('POST', u, h, b);
+const $get  = (url, hdrs) => http('GET',  url, hdrs);
+const $post = (url, b, hdrs) => http('POST', url, hdrs, b);
 
 // ================================================================
-// 模式 A：script-request-header — 被动捕获
+// script-request-header — 捕获 token + duiba URL
 // ================================================================
 function onRequest() {
   const url = $request.url;
@@ -159,7 +153,7 @@ function onRequest() {
 }
 
 // ================================================================
-// 模式 B：script-response-body — 被动捕获 cookie
+// script-response-body — 捕获 autoLogin cookie
 // ================================================================
 function onResponse() {
   const url = $request.url;
@@ -167,12 +161,12 @@ function onResponse() {
   if (url.includes('autoLogin/autologin')) {
     const sc = $response.headers['Set-Cookie'] || $response.headers['set-cookie'];
     if (sc) {
-      const ck = scToStr(sc);
-      if (ck.includes('tokenId=') && ck.includes('wdata4=')) {
-        $write(K.CK, ck);
+      const ck = scToObj(sc);
+      if (ck.tokenId || ck.wdata4) {
+        $write(K.CK, Object.entries(ck).filter(([_, v]) => v).map(([k, v]) => `${k}=${v}`).join('; '));
         console.log('[mxbc] ✅ cookie 已捕获并缓存');
       } else {
-        console.log(`[mxbc] ⚠️ cookie 不完整: ${ck.slice(0, 100)}`);
+        console.log('[mxbc] ⚠️ cookie 不完整，跳过');
       }
     }
   }
@@ -181,7 +175,7 @@ function onResponse() {
 }
 
 // ================================================================
-// 模式 C：task — 主动签到
+// 领币逻辑（只需 cookie，无需 sign）
 // ================================================================
 async function doReward(ck) {
   const ref = `https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}&from=login&spm=76177.1.1.1`;
@@ -196,9 +190,8 @@ async function doReward(ck) {
   const b1 = await $get(`https://${D.ACTIVITY}/globalReward/accountBalance`, hdrs);
   const bd1 = JSON.parse(b1.body);
   const bal = (bd1.data && bd1.data.balance) || 0;
-  console.log(`[mxbc]   余额: ${bal}`);
 
-  // 3. 领币
+  // 3. 领币（POST 空 body）
   console.log('[mxbc] 🎁 访问雪王铺领币...');
   const vr = await $post(`https://${D.ACTIVITY}/globalReward/visitMall`, null, hdrs);
   const vd = JSON.parse(vr.body);
@@ -208,10 +201,10 @@ async function doReward(ck) {
     msg = '✅ 领币成功';
   } else {
     const desc = vd.desc || '';
-    msg = /已|重复|already|visited/i.test(desc) ? '✅ 今日已领取' : `⚠️ ${desc}`;
+    msg = /已|重复|already|visited|今天|今日/i.test(desc) ? '✅ 今日已领取' : `⚠️ ${desc}`;
   }
 
-  // 4. 再查余额确认
+  // 4. 确认余额
   await new Promise(r => setTimeout(r, 600));
   const b2 = await $get(`https://${D.ACTIVITY}/globalReward/accountBalance`, hdrs);
   const bd2 = JSON.parse(b2.body);
@@ -220,93 +213,90 @@ async function doReward(ck) {
 
   const line = diff > 0 ? `银两 ${bal} → ${bal2} 🪙 +${diff}` : `银两 ${bal2} 🪙`;
   console.log(`[mxbc] 📊 ${msg} | ${line}`);
-  $notification.post('🍦 蜜雪冰城 雪王铺', msg, line);
+  $notify('🍦 蜜雪冰城 雪王铺', msg, line);
 }
 
 // ================================================================
-// 主入口
+// 主流程
 // ================================================================
-if (typeof $response !== 'undefined' && $response) {
-  onResponse();
-} else if (typeof $request !== 'undefined' && $request) {
-  onRequest();
-} else {
-  $httpClient = $httpClient || {};
-  (async () => {
-    console.log('\n[mxbc] ====== 🍦 蜜雪冰城 雪王铺签到 ======\n');
+(async () => {
+  console.log('\n[mxbc] ====== 🍦 蜜雪冰城 雪王铺签到 ======\n');
 
-    // 优先用缓存 cookie
-    let ck = $read(K.CK);
-    if (ck) {
-      console.log('[mxbc] 💾 有缓存 cookie');
-      try {
-        await doReward(ck);
-        $done();
-        return;
-      } catch (e) {
-        console.log(`[mxbc] ⚠️ cookie 可能过期: ${e.message || e}`);
-      }
-    }
-
-    // 刷新 cookie
-    const token = $read(K.TOKEN);
-    const duibaUrl = $read(K.DUIBA);
-
-    if (!duibaUrl) {
-      $notification.post('🍦 蜜雪冰城', '❌ 缺少缓存数据', '请打开蜜雪冰城小程序进入雪王铺页面');
-      $done();
-      return;
-    }
-    if (!token) {
-      $notification.post('🍦 蜜雪冰城', '❌ 缺少 Token', '请打开蜜雪冰城小程序');
-      $done();
-      return;
-    }
-
-    const cid = $read(K.CID) || '';
-    const authH = { 'Content-Type': 'application/json', 'Access-Token': token, 'x-ssos-cid': cid, 'version': '2.8.31', 'User-Agent': UA };
-
+  // --- 有缓存 cookie → 直接领币 ---
+  let ck = $read(K.CK);
+  if (ck) {
+    console.log('[mxbc] 💾 有缓存 cookie，直接领币...');
     try {
-      console.log('[mxbc] 📡 请求 duiba 登录链接...');
-      const dRes = await $get(duibaUrl, authH);
-      const dData = JSON.parse(dRes.body);
-
-      if (dData.code !== 0 || !dData.data?.loginUrl) {
-        $notification.post('🍦 蜜雪冰城', '❌ duiba 异常', dData.msg || '请重新打开小程序');
-        $done();
-        return;
-      }
-
-      const loginUrl = dData.data.loginUrl;
-      console.log('[mxbc] ✅ 获取 loginUrl 成功');
-
-      console.log('[mxbc] 🔑 自动登录获取 cookie...');
-      const lRes = await $get(loginUrl, {
-        'User-Agent': UA,
-        'Referer': `https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}`
-      });
-
-      const sc = lRes.headers['Set-Cookie'] || lRes.headers['set-cookie'];
-      const cookies = scToObj(sc);
-
-      if (!cookies.tokenId && !cookies.wdata4) {
-        throw new Error('autoLogin 返回 cookie 不完整');
-      }
-
-      const newCk = Object.entries(cookies)
-        .filter(([_, v]) => v && v !== '""')
-        .map(([k, v]) => `${k}=${v}`)
-        .join('; ');
-      $write(K.CK, newCk);
-      console.log(`[mxbc] ✅ 登录成功，缓存 cookie (${Object.keys(cookies).length} 项)`);
-
-      await doReward(newCk);
-
+      await doReward(ck);
+      callDone();
+      return;
     } catch (e) {
-      console.log(`[mxbc] ❌ ${e.message || e}`);
-      if (ck) { try { await doReward(ck); } catch(_) {} }
-      $notification.post('🍦 蜜雪冰城', '❌ 签到失败', e.message || '请重新打开小程序');
+      console.log(`[mxbc] ⚠️ 直接领币失败: ${e.message || e}`);
     }
-    $done();
-  })();
-}
+  }
+
+  // --- 缓存失效 → 需刷新 ---
+  const token   = $read(K.TOKEN);
+  const duibaUrl = $read(K.DUIBA);
+
+  if (!duibaUrl || !token) {
+    const reason = !duibaUrl && !token ? 'Token + duiba URL 均缺失' :
+                   !duibaUrl ? 'duiba URL 已过期' : 'Token 已过期';
+    console.log(`[mxbc] ❌ ${reason}`);
+    $notify('🍦 蜜雪冰城', '❌ 数据过期', reason + '\n请打开蜜雪冰城小程序');
+    callDone();
+    return;
+  }
+
+  const cid = $read(K.CID) || '';
+  const authH = { 'Content-Type': 'application/json', 'Access-Token': token, 'x-ssos-cid': cid, 'version': '2.8.31', 'User-Agent': UA };
+
+  try {
+    // 请求 duiba URL → 获取 loginUrl
+    console.log('[mxbc] 📡 请求 duiba 登录链接...');
+    const dRes = await $get(duibaUrl, authH);
+    const dData = JSON.parse(dRes.body);
+
+    if (dData.code !== 0 || !dData.data?.loginUrl) {
+      // duiba URL sign 过期，清空缓存
+      $write(K.DUIBA, '');
+      console.log(`[mxbc] ❌ duiba 异常: ${dData.msg || '未知错误'}`);
+      $notify('🍦 蜜雪冰城', '❌ duiba 已过期', `${dData.msg || '未知错误'}\n请打开蜜雪冰城小程序刷新`);
+      callDone();
+      return;
+    }
+
+    const loginUrl = dData.data.loginUrl;
+    console.log('[mxbc] ✅ 获取 loginUrl，开始自动登录...');
+
+    // 访问 loginUrl → 302 → set-cookie
+    const lRes = await $get(loginUrl, {
+      'User-Agent': UA,
+      'Referer': `https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}`
+    });
+
+    const sc = lRes.headers['Set-Cookie'] || lRes.headers['set-cookie'];
+    const cookies = scToObj(sc);
+
+    if (!cookies.tokenId && !cookies.wdata4) {
+      throw new Error('autoLogin 返回的 cookie 不完整');
+    }
+
+    // 缓存新 cookie
+    const newCk = Object.entries(cookies)
+      .filter(([_, v]) => v)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
+    $write(K.CK, newCk);
+    console.log(`[mxbc] ✅ 自动登录成功 (${Object.keys(cookies).length} 项 cookie)`);
+
+    await doReward(newCk);
+
+  } catch (e) {
+    console.log(`[mxbc] ❌ ${e.message || e}`);
+    if (ck) { try { await doReward(ck); } catch(_) {} }
+    $notify('🍦 蜜雪冰城', '❌ 签到失败', e.message || '未知错误');
+  }
+
+  callDone();
+})();

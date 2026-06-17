@@ -9,13 +9,13 @@
 // ============================================================
 // [rewrite_local]
 // # 只捕获登录响应的 refresh_token
-// ^https://m\.uumit\.com/api/v1/auth/login url script-response-body uumit_v3.js
+// ^https://m\.uumit\.com/api/v1/auth/login url script-response-body https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js
 //
 // [mitm]
 // hostname = m.uumit.com
 //
 // [task_local]
-// 0 9,21 * * * uumit_v3.js, tag=uumit 签到+星火, enabled=true
+// 0 9,21 * * * https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js, tag=uumit 签到+星火, enabled=true
 // ============================================================
 
 // ====== 常量 ======

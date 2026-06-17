@@ -9,13 +9,13 @@
 // ============================================================
 // [rewrite_local]
 // # 只捕获登录响应的 refresh_token
-// ^https://m\.uumit\.com/api/v1/auth/login url script-response-body https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js
+// ^https://m\.uumit\.com/api/v1/auth/login url script-response-body uumit_v3.js
 //
 // [mitm]
 // hostname = m.uumit.com
 //
 // [task_local]
-// 0 9,21 * * * https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/UUmit_Cookie.js, tag=uumit 签到+星火, enabled=true
+// 0 9,21 * * * uumit_v3.js, tag=uumit 签到+星火, enabled=true
 // ============================================================
 
 // ====== 常量 ======
@@ -181,43 +181,72 @@ async function getAccessToken() {
   return null;
 }
 
-// ====== 获取星火计划 API Key ======
+// ====== 每日签到 ======
+async function doCheckin(token) {
+  const r = await api("POST", "/daily/checkin", null, token);
+  if (!r) return { ok: false, msg: "请求失败" };
+  if (r.code === 0 && r.data) {
+    const d = r.data;
+    const parts = [];
+    parts.push(`+${d.reward_ut || 0} UT`);
+    parts.push(`${d.streak_day || 0}/${d.streak_target || 0}天`);
+    if (d.streak_bonus_ut && parseFloat(d.streak_bonus_ut) > 0) {
+      parts.push(`🎁 连签奖励 ${d.streak_bonus_ut} UT`);
+    }
+    // mascot_line 有些会带 emoji，直接显示
+    const line = d.mascot_line ? `「${d.mascot_line}」` : "";
+    return { ok: true, msg: parts.join(" | "), line, reward: d.reward_ut };
+  }
+  if (r.code === 40001) {
+    return { ok: true, msg: "今日已签到" };
+  }
+  return { ok: false, msg: r.message || "签到失败" };
+}
+
+// ====== 每日宝箱 ======
+async function getBoxStatus(token) {
+  const r = await api("GET", "/daily/box", null, token);
+  if (!r || r.code !== 0 || !r.data) return null;
+  return r.data;
+}
+
+// ====== 钱包 & 统计 ======
+async function getBalance(token) {
+  const [w, s] = await Promise.all([
+    api("GET", "/wallet", null, token),
+    api("GET", "/wallet/stats", null, token),
+  ]);
+  const balance = w?.code === 0 && w.data?.ut ? w.data.ut.balance : null;
+  const income = s?.code === 0 && s.data?.ut ? s.data.ut.today_income : null;
+  return { balance, income };
+}
+
+// ====== 星火计划 ======
 async function claimSpark(token) {
   const r = await api("POST", "/llm/cyber-egg/claim", null, token);
   if (!r) return { ok: false, msg: "请求失败" };
   if (r.code === 0 && r.data) {
-    const apiKeyPreview = r.data.api_key_preview || r.data.api_key || "未知";
-    const apiKey = r.data.api_key || (r.data.id ? null : null);
-    if (apiKey) {
-      store.write(KEY.AK, apiKey);
+    const preview = r.data.api_key_preview || r.data.api_key || null;
+    let fullKey = r.data.api_key || null;
+    if (!fullKey && r.data.claim_id) {
+      // 尝试取完整 key
+      const detail = await api("GET", `/llm/cyber-egg/claims/${r.data.claim_id}`, null, token);
+      if (detail?.code === 0 && detail?.data?.api_key) {
+        fullKey = detail.data.api_key;
+      }
+    }
+    if (fullKey) {
+      store.write(KEY.AK, fullKey);
       const today = new Date();
       store.write(KEY.AK_DATE, `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`);
-      log(`星火 API Key 已保存`);
     }
-    return { ok: true, msg: apiKeyPreview, fullKey: apiKey };
+    const budget = r.data.budget_remaining_cny || r.data.value_cny || null;
+    return { ok: true, preview, fullKey, budget, already: !!r.data.already_claimed };
   }
   if (r.code === 1003 || (r.message && r.message.includes('已领取'))) {
     return { ok: false, msg: "今日已领取" };
   }
   return { ok: false, msg: r.message || "未知错误" };
-}
-
-// ====== 查询余额 ======
-async function getBalance(token) {
-  const r = await api("GET", "/llm/cyber-egg/balance", null, token);
-  if (r?.code === 0 && r.data) {
-    return r.data.balance || "未知";
-  }
-  return null;
-}
-
-// ====== 用户信息 ======
-async function getUserInfo(token) {
-  const r = await api("GET", "/customer/info", null, token);
-  if (r?.code === 0 && r.data) {
-    return r.data;
-  }
-  return null;
 }
 
 // ============================================================
@@ -282,39 +311,63 @@ async function getUserInfo(token) {
   }
   
   const results = [];
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   
-  // 1. 用户信息
-  const user = await getUserInfo(token);
-  if (user) {
-    log(`用户: ${user.email || user.profile?.nickname || '未知'}`);
+  // 1. 每日签到
+  log("▶ 签到中...");
+  const checkin = await doCheckin(token);
+  if (checkin.ok) {
+    log(`签到: ${checkin.msg}`);
+    results.push(`✅ 签到成功`);
+    if (checkin.line) results.push(`💬 ${checkin.line}`);
+    if (checkin.msg) results.push(`📊 ${checkin.msg}`);
+  } else {
+    log(`签到异常: ${checkin.msg}`);
+    results.push(`⚠️ ${checkin.msg}`);
   }
   
-  // 2. 查询余额（作为签到成功的验证）
-  const balance = await getBalance(token);
-  log(`星火余额: ${balance || '未知'}`);
+  // 2. 宝箱状态
+  const box = await getBoxStatus(token);
+  if (box) {
+    log(`宝箱: ${box.completed_count}/${box.total_count} 完成`);
+    // 显示今日任务完成情况
+    for (const m of (box.missions || [])) {
+      const done = m.completed ? "✅" : "⭕";
+      log(`  ${done} ${m.fun_title || m.name}: +${m.reward_ut} UT`);
+    }
+    results.push(`📦 宝箱 ${box.completed_count}/${box.total_count}`);
+  }
   
-  // 3. 领取星火
+  // 3. 钱包 & 今日收入
+  const fin = await getBalance(token);
+  let balanceStr = "";
+  if (fin) {
+    balanceStr = `💰 ${fin.balance || 0} UT`;
+    if (fin.income && parseFloat(fin.income) > 0) {
+      balanceStr += ` (今日 +${fin.income})`;
+    }
+    log(`余额: ${balanceStr}`);
+    results.push(balanceStr);
+  }
+  
+  // 4. 星火计划
   const spark = await claimSpark(token);
   if (spark.ok) {
-    log(`🔥 星火领取成功: ${spark.msg}`);
-    results.push(`✅ 签到成功`);
-    results.push(`🔥 星火已领取`);
-    if (balance) results.push(`💰 余额: ${balance}`);
-    if (spark.fullKey) results.push(`🔑 ${spark.fullKey.substring(0,10)}...${spark.fullKey.slice(-6)}`);
+    log(`星火领取成功`);
+    if (spark.budget) results.push(`🔥 星火 ¥${spark.budget}`);
+    if (spark.preview) results.push(`🔑 ${spark.preview}`);
+    if (spark.fullKey) log(`API Key: ${spark.fullKey.substring(0,10)}...${spark.fullKey.slice(-6)}`);
+    if (!results.some(r => r.includes('签到'))) results.push(`✅ 已签到`);
   } else {
-    log(`星火: ${spark.msg}`);
     if (spark.msg.includes('已领取')) {
-      results.push(`✅ 已签到`);
+      log(`星火: 今日已领取`);
       results.push(`🔥 今日已领取`);
-      if (balance) results.push(`💰 余额: ${balance}`);
     } else {
+      log(`星火: ${spark.msg}`);
       results.push(`❌ ${spark.msg}`);
     }
   }
   
-  // 4. 检查 refresh_token 有效期
+  // 5. 检查 refresh_token 有效期
   let rtWarning = "";
   const rt = store.read(KEY.RT);
   if (rt) {
@@ -322,16 +375,20 @@ async function getUserInfo(token) {
     if (exp) {
       const remainingDays = (exp - Date.now()) / 86400000;
       if (remainingDays < 1) {
-        rtWarning = `⚠️ refresh_token 即将过期（< 1天），请重新登录`;
+        rtWarning = `⚠️ refresh_token 即将过期（<1天），请重新登录`;
       } else if (remainingDays < 3) {
-        rtWarning = `📅 refresh_token 剩余 ${Math.round(remainingDays)} 天`;
+        rtWarning = `📅 凭证 ${Math.round(remainingDays)} 天后到期`;
       }
     }
   }
-  
-  // 通知
+
+  // ── 显示结果 ──
   const title = "uumit 签到+星火";
-  const sub = results.filter(r => r.startsWith('✅') || r.startsWith('🔥') || r.startsWith('💰')).join(' ');
+  
+  const sub = results
+    .filter(r => r.startsWith('✅') || r.startsWith('🔥') || r.startsWith('💰'))
+    .join('  ');
+  
   let body = results.join('\n');
   if (rtWarning) body += '\n' + rtWarning;
   

@@ -3,24 +3,39 @@
  * 作者: 也也
  *
  * 功能:
- * 1. 请求捕获: 自动保存 openId、token、User-Agent、Referer、uid
- * 2. 定时任务: 每日签到 + 激励视频积分(type=400) + 视频点击积分(type=401)
+ * 1. mode=capture：手动保存 openId、token、User-Agent、Referer、uid
+ * 2. mode=run：每日签到 + 激励视频积分(type=400) + 视频点击积分(type=401)
  *
- * 使用:
- * - 配合 kuyun-loon.plugin 导入 Loon
- * - 打开小程序/酷云相关页面触发一次 zuhu.kuka001.com 请求，提示「凭证保存成功」即可
- * - 后续由 cron 自动运行，也可手动运行脚本
+ * 建议：插件里把「酷云_获取Cookie」默认关闭，只在 token 过期时手动打开一次。
  */
 
 const NAME = '酷云积分';
 const BASE = 'https://zuhu.kuka001.com';
 const KEY = 'kuyun_loon_auth';
+const NOTIFY_KEY = 'kuyun_loon_capture_notify_state';
 
 const TASKS = {
   sign: { type: 2, name: '签到积分' },
   adView: { type: 400, name: '浏览视频奖励' },
   adClick: { type: 401, name: '视频点击奖励' },
 };
+
+function parseArgs() {
+  const raw = typeof $argument === 'string' ? $argument : '';
+  const out = {};
+  raw.split('&').forEach(pair => {
+    if (!pair) return;
+    const idx = pair.indexOf('=');
+    const k = decodeURIComponent(idx >= 0 ? pair.slice(0, idx) : pair).trim();
+    const v = decodeURIComponent(idx >= 0 ? pair.slice(idx + 1) : '1').trim();
+    if (k) out[k] = v;
+  });
+  return out;
+}
+
+const ARG = parseArgs();
+const MODE = ARG.mode || (typeof $request !== 'undefined' ? 'capture' : 'run');
+const CAPTURE_NOTIFY = String(ARG.notify || '1') !== '0';
 
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -38,13 +53,6 @@ function today() {
   return `${y}-${m}-${day}`;
 }
 
-function month() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
-}
-
 function safeJson(str, fallback = null) {
   try { return JSON.parse(str); } catch (_) { return fallback; }
 }
@@ -58,7 +66,18 @@ function getHeader(headers, name) {
   return '';
 }
 
+function mask(s) {
+  if (!s) return '-';
+  return String(s).slice(0, 6) + '***';
+}
+
 function saveAuthFromRequest() {
+  if (MODE !== 'capture') {
+    console.log(`[${NAME}] 非 capture 模式，跳过请求捕获`);
+    $done({});
+    return;
+  }
+
   const h = $request.headers || {};
   const old = safeJson($persistentStore.read(KEY) || '{}', {});
   const openId = getHeader(h, 'openId') || old.openId || '';
@@ -72,22 +91,30 @@ function saveAuthFromRequest() {
   if (m) uid = m[1];
 
   if (!openId || !token) {
-    console.log(`[${NAME}] 未发现 openId/token，跳过保存`);
+    console.log(`[${NAME}] 当前请求没有 openId/token，跳过`);
     $done({});
     return;
   }
 
+  const changed = openId !== old.openId || token !== old.token || uid !== old.uid;
   const auth = { openId, token, ua, referer, contentType, uid, updatedAt: new Date().toISOString() };
   $persistentStore.write(JSON.stringify(auth), KEY);
-  console.log(`[${NAME}] 凭证保存成功 openId=${openId.slice(0, 6)}*** token=${token.slice(0, 6)}*** uid=${uid || '-'}`);
-  $notification.post(NAME, '凭证保存成功', `uid: ${uid || '暂未捕获'}，可以运行签到广告任务了`);
+
+  console.log(`[${NAME}] 凭证已保存 openId=${mask(openId)} token=${mask(token)} uid=${uid || '-'}`);
+
+  // 避免小程序连续请求刷屏：只有凭证变化时通知；notify=0 时完全静默。
+  if (CAPTURE_NOTIFY && changed) {
+    const notifyState = { token, uid, date: today() };
+    $persistentStore.write(JSON.stringify(notifyState), NOTIFY_KEY);
+    $notification.post(NAME, '凭证保存成功', `uid: ${uid || '暂未捕获'}，保存后建议关闭「酷云_获取Cookie」`);
+  }
   $done({});
 }
 
 function loadAuth() {
   const auth = safeJson($persistentStore.read(KEY) || '{}', {});
   if (!auth.openId || !auth.token) {
-    throw new Error('缺少 openId/token：请先打开酷云/酷卡小程序页面，让 Loon 捕获一次请求');
+    throw new Error('缺少 openId/token：请先在 Loon 打开「酷云_获取Cookie」，再打开酷云/酷卡小程序捕获一次');
   }
   return auth;
 }
@@ -107,10 +134,7 @@ function request(method, url, body, auth) {
     const opts = { url, method, headers: headers(auth), timeout: 15000 };
     if (body !== undefined && body !== null) opts.body = typeof body === 'string' ? body : JSON.stringify(body);
     $httpClient[method.toLowerCase()](opts, (err, resp, data) => {
-      if (err) {
-        resolve({ ok: false, err: String(err), status: resp && resp.status, raw: data });
-        return;
-      }
+      if (err) return resolve({ ok: false, err: String(err), status: resp && resp.status, raw: data });
       const json = safeJson(data, null);
       resolve({ ok: !!json && json.code === 0, status: resp && resp.status, json, raw: data });
     });
@@ -128,7 +152,6 @@ async function queryChannel(auth, type) {
     surplusCount: Number(item.surplusCount || 0),
     acquiredPoint: String(item.acquiredPoint || '0'),
     singlePoints: Number(item.singlePoints || 0),
-    isResume: Number(item.isResume || 0),
   };
 }
 

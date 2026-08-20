@@ -43,7 +43,7 @@ const ARG = parseArgs();
 const MODE = ARG.mode || (typeof $request !== 'undefined' ? 'capture' : 'run');
 const CAPTURE_NOTIFY = String(ARG.notify || '1') !== '0';
 const MAX_AD_LOOP = Math.max(1, Math.min(Number(ARG.maxAd) || 20, 50));
-const AD_DELAY = Math.max(0, Math.min(Number(ARG.delay) || 800, 10000));
+const AD_DELAY = Math.max(0, Math.min(Number(ARG.delay) || 42000, 60000));
 
 function safeJson(value, fallback) {
   if (value !== null && typeof value === 'object') return value;

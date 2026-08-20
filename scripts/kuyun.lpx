@@ -1,0 +1,19 @@
+
+#!name=酷云自动签到
+#!desc=酷云/酷卡每日签到、浏览视频奖励、视频点击奖励，支持自动抓包更新登录凭证
+#!date=2026-08-20
+#!author=AutoScript
+#!icon=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/kuyun.png
+#!loon_version=3.2.4(787)
+
+[Argument]
+arg1 = switch,true,tag=启用每日签到
+arg2 = switch,false,tag=自动抓包更新登录凭证
+arg3 = input,"5 9 * * *",tag=签到时间
+
+[Script]
+cron {arg3} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/kuyun.js, timeout=120, enable={arg1}, tag=酷云每日签到
+http-request ^https:\/\/zuhu\.kuka001\.com\/(?:market|api)\/.* script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/kuyun.js, requires-body=false, timeout=10, enable={arg2}, tag=酷云自动抓包更新凭证
+
+[MITM]
+hostname = zuhu.kuka001.com

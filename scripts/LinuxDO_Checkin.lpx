@@ -15,9 +15,9 @@ notify = switch,true,tag=结果通知,desc=执行后发送系统通知
 captureNotify = switch,true,tag=Cookie 抓取通知,desc=Cookie 更新时发送通知
 
 [Script]
-http-request ^https:\/\/linux\.do\/ script-path=scripts/linuxdo-cookie.js,tag=Linux.do Cookie 抓取,timeout=10,argument=[{captureNotify}],enable=true
-cron {cronExpression} script-path=scripts/linuxdo-checkin.js,tag=Linux.do 定时保活,timeout=300,argument=[{topicCount},{readSeconds},{notify}],enable=true
-generic script-path=scripts/linuxdo-checkin.js,tag=Linux.do 手动保活,img-url=checkmark.circle.fill,timeout=300,argument=[{topicCount},{readSeconds},{notify}],enable=true
+http-request ^https:\/\/linux\.do\/ script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/linuxdo-cookie.js,tag=Linux.do Cookie 抓取,timeout=10,argument=[{captureNotify}],enable=true
+cron {cronExpression} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/linuxdo-checkin.js,tag=Linux.do 定时保活,timeout=300,argument=[{topicCount},{readSeconds},{notify}],enable=true
+generic script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/linuxdo-checkin.js,tag=Linux.do 手动保活,img-url=checkmark.circle.fill,timeout=300,argument=[{topicCount},{readSeconds},{notify}],enable=true
 
 [Mitm]
 hostname = linux.do

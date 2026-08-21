@@ -11,11 +11,11 @@ arg1 = switch,true,tag=启用每日签到
 arg2 = switch,true,tag=自动抓包更新 Token#AppId
 arg3 = input,"placeholder",tag=Token#AppId，多账号用 & 分隔；留 placeholder 可使用抓包保存值
 arg4 = input,"0 8 * * *",tag=签到时间 Cron
-arg5 = select,"daily","daily","query",tag=运行模式
+arg5 = select,"daily",tag=运行模式,items=daily|query
 
 [Script]
-cron {arg4} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/unicom.js, argument={arg3}|{arg4}|{arg5}, timeout=180, enable={arg1}, tag=中国联通每日签到
-http-request ^https?:\/\/m\.client\.10010\.com\/mobileService\/onLine\.htm script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/unicom.js, requires-body=true, timeout=10, enable={arg2}, tag=中国联通自动抓包更新Token
+cron {arg4} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/unicom.js, argument="{arg3}|{arg4}|{arg5}", timeout=180, enable={arg1}, tag=中国联通每日签到
+http-request ^https?:\/\/m\.client\.10010\.com\/.* script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/unicom.js, requires-body=true, timeout=10, enable={arg2}, tag=中国联通自动抓包更新Token
 
 [MITM]
 hostname = m.client.10010.com

@@ -15,7 +15,7 @@
  *   mode     ：daily（默认，登录+资产+签到） / query（仅查询资产与签到状态）
  */
 
-const SCRIPT_VERSION = "1.1.0-loon";
+const SCRIPT_VERSION = "1.1.2-loon";
 const UA = "Dalvik/2.1.0 (Linux; U; Android 12; Mi 10 Pro MIUI/21.11.3);unicom{version:android@11.0802}";
 const MARKET_UA = UA;
 const STORE_KEY = "china_unicom_token_appid";
@@ -54,15 +54,45 @@ function parseFormBody(body) {
   return out;
 }
 
+function parseKVFromText(text) {
+  const out = {};
+  const s = String(text || "");
+  // form/query: a=b&c=d
+  Object.assign(out, parseFormBody(s.replace(/^\?/, "")));
+  // Cookie: a=b; c=d
+  s.split(";").forEach((pair) => {
+    const idx = pair.indexOf("=");
+    if (idx < 0) return;
+    const k = pair.slice(0, idx).trim();
+    const v = pair.slice(idx + 1).trim();
+    if (k && !(k in out)) out[k] = v;
+  });
+  return out;
+}
+
+function getUrlQuery(url) {
+  const i = String(url || "").indexOf("?");
+  return i >= 0 ? String(url).slice(i + 1) : "";
+}
+
 function captureTokenIfNeeded() {
   if (typeof $request === "undefined") return false;
   const url = String($request.url || "");
-  if (!/\/mobileService\/onLine\.htm/i.test(url)) return false;
+  // 只处理联通主域名，放宽路径，避免 App 没触发 onLine.htm 时完全抓不到
+  if (!/^https?:\/\/m\.client\.10010\.com\//i.test(url)) return false;
 
+  const headers = $request.headers || {};
+  const cookie = headers.Cookie || headers.cookie || "";
   const body = $request.body || "";
-  const form = parseFormBody(body);
-  const token = form.token_online || form.tokenOnline || "";
-  const appId = form.appId || form.appid || "";
+  const merged = Object.assign(
+    {},
+    parseKVFromText(getUrlQuery(url)),
+    parseKVFromText(cookie),
+    parseKVFromText(body)
+  );
+
+  const token = merged.token_online || merged.tokenOnline || merged.TOKEN_ONLINE || "";
+  const appId = merged.appId || merged.appid || merged.APPID || "";
 
   if (token && appId) {
     const tokenPair = `${token}#${appId}`;
@@ -73,7 +103,8 @@ function captureTokenIfNeeded() {
     else if (ok) notify("中国联通", "Token#AppId 已存在", masked);
     else notify("中国联通", "Token#AppId 保存失败", "请检查 Loon 持久化存储权限");
   } else {
-    notify("中国联通", "未抓到 Token#AppId", "请确认请求 body 包含 token_online 和 appId");
+    // 放宽匹配后会进来很多请求，没 token 的请求静默跳过，避免通知刷屏
+    console.log(`[Capture Skip] ${url} 未发现 token_online/appId`);
   }
   try { $done({}); } catch (_) { $done(); }
   return true;
@@ -127,8 +158,13 @@ function parseArgs() {
     }
   }
 
+  // Loon 某些版本不会在 argument= 内展开 {argN}，遇到字面量时兜底
+  if (/^\{arg\d+\}$/.test(parsedArgs.token || "") || parsedArgs.token === "placeholder") parsedArgs.token = "";
+  if (/^\{arg\d+\}$/.test(parsedArgs.cronexp || "")) parsedArgs.cronexp = "";
+  if (!parsedArgs.mode || /^\{arg\d+\}$/.test(parsedArgs.mode) || !/^(daily|query)$/.test(parsedArgs.mode)) parsedArgs.mode = "daily";
+
   // 参数页未填写 token 时，自动使用抓包保存的 Token#AppId
-  if (!parsedArgs.token || parsedArgs.token === "placeholder") {
+  if (!parsedArgs.token) {
     const saved = storeRead(STORE_KEY);
     if (saved) parsedArgs.token = saved;
   }
@@ -219,7 +255,7 @@ class UserService {
     }
 
     return new Promise((resolve) => {
-      $httpClient.request(opt, (error, response, raw) => {
+      const cb = (error, response, raw) => {
         if (error || !response) {
           this.log(`请求 ${finalUrl} 异常: ${error || "no response"}`);
           resolve(null);
@@ -230,7 +266,23 @@ class UserService {
         } catch (e) {
           resolve(null);
         }
-      });
+      };
+
+      try {
+        if (typeof $httpClient.request === "function") {
+          $httpClient.request(opt, cb);
+        } else if (opt.method === "GET" && typeof $httpClient.get === "function") {
+          $httpClient.get(opt, cb);
+        } else if (opt.method === "POST" && typeof $httpClient.post === "function") {
+          $httpClient.post(opt, cb);
+        } else {
+          this.log("当前环境不支持 $httpClient.request/get/post");
+          resolve(null);
+        }
+      } catch (e) {
+        this.log(`请求 ${finalUrl} 异常: ${e && e.message ? e.message : e}`);
+        resolve(null);
+      }
     });
   }
 

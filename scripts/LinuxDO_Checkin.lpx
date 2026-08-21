@@ -1,0 +1,23 @@
+﻿#!name = Linux.do 每日保活
+#!desc = 自动抓取 Linux.do Cookie，定时检查登录并随机阅读主题；不自动点赞。
+#!author = OpenCowork
+#!homepage = https://linux.do/
+#!system = iOS,iPadOS,macOS
+#!loon_version = 3.5.1(978)
+#!tag = Linux.do,签到,保活
+#!type = normal
+
+[Argument]
+cronExpression = input,"15 8 * * *",tag=定时表达式,desc=默认每天 08:15 执行（按设备时区）
+topicCount = select,3,5,10,tag=阅读主题数,desc=每次随机读取的主题数量
+readSeconds = select,15,30,60,tag=单帖阅读秒数,desc=上报给 Discourse 的近似阅读时间
+notify = switch,true,tag=结果通知,desc=执行后发送系统通知
+captureNotify = switch,true,tag=Cookie 抓取通知,desc=Cookie 更新时发送通知
+
+[Script]
+http-request ^https:\/\/linux\.do\/ script-path=scripts/linuxdo-cookie.js,tag=Linux.do Cookie 抓取,timeout=10,argument=[{captureNotify}],enable=true
+cron {cronExpression} script-path=scripts/linuxdo-checkin.js,tag=Linux.do 定时保活,timeout=300,argument=[{topicCount},{readSeconds},{notify}],enable=true
+generic script-path=scripts/linuxdo-checkin.js,tag=Linux.do 手动保活,img-url=checkmark.circle.fill,timeout=300,argument=[{topicCount},{readSeconds},{notify}],enable=true
+
+[Mitm]
+hostname = linux.do

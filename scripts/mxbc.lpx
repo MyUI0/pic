@@ -13,9 +13,9 @@ arg3 = switch,true,tag=抓取雪王铺Cookie
 arg4 = input,"30 8 * * *",tag=签到时间
 
 [Script]
-cron {arg4} script-path=mxbc_loon.js, timeout=60, enable={arg1}, tag=蜜雪冰城_雪王铺签到
-http-request ^https?:\/\/mxsa\.mxbc\.net\/api\/v1\/(customer\/info|duiba\/getLoginUrl|app\/regByUnionid|app\/code2Session) script-path=mxbc.js, requires-body=false, timeout=30, enable={arg2}, tag=蜜雪冰城_抓取Token与duiba
-http-response ^https?:\/\/76177-activity\.dexfu\.cn\/.* script-path=mxbc.js, requires-body=false, timeout=30, enable={arg3}, tag=蜜雪冰城_抓取活动Cookie
+cron {arg4} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/mxbc.js, timeout=60, enable={arg1}, tag=蜜雪冰城_雪王铺签到
+http-request ^https?:\/\/mxsa\.mxbc\.net\/api\/v1\/(customer\/info|duiba\/getLoginUrl|app\/regByUnionid|app\/code2Session) script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/mxbc.js, requires-body=false, timeout=30, enable={arg2}, tag=蜜雪冰城_抓取Token与duiba
+http-response ^https?:\/\/76177-activity\.dexfu\.cn\/.* script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/mxbc.js, requires-body=false, timeout=30, enable={arg3}, tag=蜜雪冰城_抓取活动Cookie
 
 [MITM]
 hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn

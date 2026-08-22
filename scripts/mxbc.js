@@ -1,325 +1,249 @@
 /*
 ==================================================
-  蜜雪冰城 - 访问雪王铺领币
-  Quantumult X 签到脚本 v3.5
-  ⚡ 单文件 · 无需 RSA · 自动 polyfill
+  蜜雪冰城 - Loon 插件脚本
+  基于最新 Node 脚本转换：Loon 原生 $httpClient / $persistentStore
+  功能：抓包缓存 Access-Token / duiba 登录 URL / 活动 Cookie，定时访问雪王铺并尝试领币
 ==================================================
 
-[rewrite_local]
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/customer\/info url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
-^https:\/\/mxsa\.mxbc\.net\/api\/v1\/duiba\/getLoginUrl url script-request-header https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
-^https:\/\/76177-activity\.dexfu\.cn\/autoLogin\/autologin url script-response-body https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js
+使用方式：
+1. 安装 mxbc_loon.plugin 或 mxbc_loon.lpx。
+2. 打开 MitM，进入蜜雪冰城小程序/APP，访问「雪王铺」相关页面。
+3. Loon 日志出现 Token、duiba URL、活动 Cookie 缓存提示后，可手动运行或等定时任务。
 
-[mitm]
-hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn
-
-[task_local]
-0 9 * * * https://raw.githubusercontent.com/MyUI0/pic/main/scripts/mxbc.js, tag=蜜雪冰城-雪王铺签到, enabled=true
-
+说明：
+- 原最新版脚本依赖 Node crypto RSA 签名与 wx_server 换 code；Loon 环境不支持这些 Node 模块。
+- 本版本通过抓包缓存服务端已签名请求，避免在 Loon 内做 RSA 私钥签名。
 ==================================================
 */
 
-// ================================================================
-// 环境检测
-// ================================================================
-const isRequest = typeof $request  != "undefined";  // rewrite 模式
-const isSurge   = typeof $httpClient != "undefined" && typeof $task === "undefined"; // Surge
-const isQuanX   = typeof $task       != "undefined"; // Quantumult X
-const isNode    = typeof require     == "function";  // Node.js
+const SCRIPT_NAME = '蜜雪冰城';
+const isRequest = typeof $request !== 'undefined';
+const isResponse = typeof $response !== 'undefined';
+const isLoon = typeof $persistentStore !== 'undefined' && typeof $httpClient !== 'undefined';
 
-// ================================================================
-// $httpClient polyfill (QX task 模式 → $task.fetch)
-//   QX task 模式下无 $httpClient，用 $task.fetch 模拟
-//   rewrite 模式下原生 $httpClient 存在，不生效
-// ================================================================
-if (isQuanX && typeof $httpClient === 'undefined') {
-  const _fetch = (opts, cb) => {
-    $task.fetch(opts).then(r => {
-      // QX task 模式的 $task.fetch 返回结构
-      // 常见字段: {status, headers, body, responseText}
-      // body 可能为 {} 空对象，responseText 才是实际内容
-      let raw = r.body;
-      if (!raw || raw === {} || typeof raw !== 'string') {
-        raw = r.responseText || '';
-      }
-      cb(null, { status: r.status || 0, headers: r.headers || {}, body: raw || '' });
-    }).catch(e => cb(e, { status: 0, headers: {}, body: '' }));
-  };
-  $httpClient = {
-    get(opts, cb)  { _fetch(opts, cb); },
-    post(opts, cb) { _fetch(opts, cb); }
-  };
-}
-
-// ================================================================
-// 常量
-// ================================================================
-const D = {
-  ACTIVITY: '76177-activity.dexfu.cn',
-  SKIN_ID: '216593'
-};
-const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70(0x1800463a) NetType/WIFI Language/zh_CN';
+const API_BASE = 'https://mxsa.mxbc.net/api';
+const APP_ID = 'd82be6bbc1da11eb9dd000163e122ecb';
+const MINI_APP_ID = 'wx7696c66d2245d107';
+const APP_VERSION = '2.8.28';
+const ACTIVITY_HOST = '76177-activity.dexfu.cn';
+const SKIN_ID = '216593';
+const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.70(0x1800463a) NetType/WIFI Language/zh_CN miniProgram';
 
 const K = {
-  TOKEN: 'mxbc_token',
-  CID: 'mxbc_cid',
-  DUIBA: 'mxbc_duiba_url',
-  CK: 'mxbc_ck'
+  TOKEN: 'mxbc_access_token',
+  CID: 'mxbc_x_ssos_cid',
+  DUIBA_URL: 'mxbc_duiba_signed_url',
+  ACTIVITY_URL: 'mxbc_activity_login_url',
+  ACTIVITY_CK: 'mxbc_activity_cookie',
+  PHONE: 'mxbc_phone_mask',
+  POINT: 'mxbc_point'
 };
 
-// ================================================================
-// 存储 (兼容 QX / Surge)
-// ================================================================
-const $read = key => {
-  if (isQuanX) try { return $prefs.valueForKey(key) } catch(e) {}
-  if (isSurge)  try { return $persistentStore.read(key) } catch(e) {}
-  return null;
-};
-const $write = (key, val) => {
-  if (isQuanX) try { $prefs.setValueForKey(val, key) } catch(e) {}
-  if (isSurge)  try { $persistentStore.write(val, key) } catch(e) {}
-};
-
-// ================================================================
-// $done 兼容
-// ================================================================
-const callDone = val => {
-  if (isQuanX) return $done(val);
-  if (isSurge)  return isRequest ? $done(val) : $done();
-};
-
-// ================================================================
-// Set-Cookie 解析
-// ================================================================
-function scToObj(sc) {
-  const arr = Array.isArray(sc) ? sc : (sc ? [sc] : []);
+function log(msg) { console.log(`[mxbc] ${msg}`); }
+function read(key) { try { return $persistentStore.read(key); } catch (_) { return null; } }
+function write(key, val) { try { return $persistentStore.write(String(val || ''), key); } catch (_) { return false; } }
+function done(val) { try { $done(val || {}); } catch (_) {} }
+function notify(title, sub, body) {
+  try {
+    if (typeof $notification !== 'undefined') $notification.post(title, sub || '', body || '');
+    else if (typeof $notify !== 'undefined') $notify(title, sub || '', body || '');
+  } catch (_) {}
+}
+function maskPhone(phone) { return String(phone || '').replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2'); }
+function lowerHeaders(h) {
+  const out = {};
+  Object.keys(h || {}).forEach(k => out[k.toLowerCase()] = h[k]);
+  return out;
+}
+function cookieObj(setCookie) {
+  const arr = Array.isArray(setCookie) ? setCookie : (setCookie ? String(setCookie).split(/,(?=\s*[^;,=]+=[^;,]+)/) : []);
   const obj = {};
   for (const s of arr) {
-    const eq = s.indexOf('=');
-    if (eq < 0) continue;
-    const nm = s.slice(0, eq).trim();
-    const semi = s.indexOf(';', eq);
-    const val = s.slice(eq + 1, semi > 0 ? semi : s.length).trim();
-    if (!val || val === '""') continue;
-    if (/\bmax-age=0\b/i.test(s)) continue;
-    obj[nm] = val;
+    if (/\b(max-age=0|expires=thu,\s*01 jan 1970)\b/i.test(s)) continue;
+    const m = String(s).match(/^\s*([^=;]+)=([^;]*)/);
+    if (!m || !m[2]) continue;
+    obj[m[1].trim()] = m[2].trim();
   }
   return obj;
 }
-
-// ================================================================
-// HTTP
-// ================================================================
-function http(method, url, hdrs, body) {
+function cookieStr(obj, names) {
+  const keys = names && names.length ? names.filter(k => obj[k]) : Object.keys(obj).filter(k => obj[k]);
+  return keys.map(k => `${k}=${obj[k]}`).join('; ');
+}
+function request(method, url, headers, body) {
   return new Promise((resolve, reject) => {
-    const opts = { url, headers: hdrs || {}, timeout: 15 };
-    if (body !== undefined) opts.body = body;
-
-    if (isQuanX) {
-      // QX task 模式: $task.fetch（无原生 $httpClient）
-      if (typeof $httpClient === 'undefined' || typeof $httpClient.get === 'undefined') {
-        $task.fetch(opts).then(r => {
-          let raw = r.body;
-          // 兼容: body 可能是空对象或 undefined，实际内容在 responseText
-          if (!raw || typeof raw !== 'string' || raw === '{}') {
-            raw = r.responseText || '';
-          }
-          resolve({ status: r.status || 0, headers: r.headers || {}, body: raw });
-        }).catch(e => reject(e));
-        return;
-      }
-      // QX rewrite 模式: 原生 $httpClient
-      $httpClient[method === 'GET' ? 'get' : 'post'](opts, (err, resp, data) => {
-        if (err) return reject(err);
-        resolve({ status: resp.status, headers: resp.headers, body: data || '' });
-      });
-      return;
-    }
-
-    if (isSurge) {
-      $httpClient[method === 'GET' ? 'get' : 'post'](opts, (err, resp, data) => {
-        if (err) return reject(err);
-        resolve({ status: resp.status, headers: resp.headers, body: data || '' });
-      });
-      return;
-    }
-
-    reject(new Error('未知环境'));
+    const opts = { url, headers: headers || {}, timeout: 20 };
+    if (body !== undefined && body !== null) opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    $httpClient[method.toLowerCase()](opts, (err, resp, data) => {
+      if (err) return reject(err);
+      resolve({ status: resp && resp.status ? resp.status : 0, headers: lowerHeaders(resp && resp.headers), body: data || '' });
+    });
   });
 }
-const $get  = (url, hdrs) => http('GET',  url, hdrs);
-const $post = (url, b,  hdrs) => http('POST', url, hdrs, b);
+const get = (url, headers) => request('get', url, headers);
+const post = (url, body, headers) => request('post', url, headers, body);
 
-// ================================================================
-// script-request-header — 被动捕获
-// ================================================================
-function onRequest() {
-  const url = $request.url;
-  const h = $request.headers;
-
-  const token = h['Access-Token'];
-  if (token && token !== $read(K.TOKEN)) {
-    $write(K.TOKEN, token);
-    console.log(`[mxbc] ✅ Token 更新: ${token.slice(0, 24)}...`);
-  }
-
-  const cid = h['x-ssos-cid'];
-  if (cid) $write(K.CID, cid);
-
-  if (url.includes('duiba/getLoginUrl')) {
-    $write(K.DUIBA, url);
-    console.log('[mxbc] ✅ duiba URL 已缓存');
-  }
-
-  $done({});
+function miniHeaders(token) {
+  return {
+    'Host': 'mxsa.mxbc.net',
+    'Connection': 'keep-alive',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36 MicroMessenger/7.0.4.501 NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF',
+    'xweb_xhr': '1',
+    'Access-Token': token || '',
+    'Content-Type': 'application/json',
+    'Accept': '*/*',
+    'Referer': `https://servicewechat.com/${MINI_APP_ID}/59/page-frame.html`,
+    'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+    'version': APP_VERSION
+  };
 }
 
-// ================================================================
-// script-response-body — 被动捕获 cookie
-// ================================================================
-function onResponse() {
-  const url = $request.url;
+function onRequest() {
+  const url = $request.url || '';
+  const h = lowerHeaders($request.headers || {});
+  const token = h['access-token'];
+  if (token && token !== read(K.TOKEN)) {
+    write(K.TOKEN, token);
+    log(`✅ Access-Token 已缓存: ${token.slice(0, 16)}...`);
+  }
+  const cid = h['x-ssos-cid'];
+  if (cid) write(K.CID, cid);
+  if (/\/api\/v1\/customer\/info/i.test(url)) {
+    write('mxbc_customer_info_signed_url', url);
+    log('✅ customer/info 已签名 URL 已缓存');
+  }
+  if (/\/api\/v1\/duiba\/getLoginUrl/i.test(url)) {
+    write(K.DUIBA_URL, url);
+    log('✅ duiba 已签名 URL 已缓存');
+  }
+  done({});
+}
 
-  if (url.includes('autoLogin/autologin')) {
-    const sc = $response.headers['Set-Cookie'] || $response.headers['set-cookie'];
-    if (sc) {
-      const ck = scToObj(sc);
-      if (ck.tokenId || ck.wdata4) {
-        $write(K.CK, Object.entries(ck).filter(([_, v]) => v).map(([k, v]) => `${k}=${v}`).join('; '));
-        console.log('[mxbc] ✅ cookie 已捕获并缓存');
-      } else {
-        console.log('[mxbc] ⚠️ cookie 不完整，跳过');
-      }
+function onResponse() {
+  const url = $request.url || '';
+  const rh = lowerHeaders(($response && $response.headers) || {});
+  const sc = rh['set-cookie'];
+  if (/autoLogin\/autologin|76177-activity\.dexfu\.cn/i.test(url) && sc) {
+    const obj = cookieObj(sc);
+    const ck = cookieStr(obj, ['wdata4', 'w_ts', '_ac', 'wdata3', 'dcustom', 'tokenId']);
+    if (ck) {
+      write(K.ACTIVITY_CK, ck);
+      log(`✅ 活动 Cookie 已缓存: ${Object.keys(obj).join(', ')}`);
     }
   }
-
-  $done({});
+  done({});
 }
 
-// ================================================================
-// 领币（只需 cookie，无需 sign）
-// ================================================================
-async function doReward(ck) {
-  const ref = `https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}&from=login&spm=76177.1.1.1`;
-  const hdrs = { 'User-Agent': UA, 'Referer': ref, 'Cookie': ck };
-
-  // 1. 访问雪王铺
-  await $get(`https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}&from=login&spm=76177.1.1.1`, hdrs);
-
-  // 2. 查余额
-  const b1 = await $get(`https://${D.ACTIVITY}/globalReward/accountBalance`, hdrs);
-  const bd1 = JSON.parse(b1.body);
-  const bal = (bd1.data && bd1.data.balance) || 0;
-
-  // 3. 领币
-  const vr = await $post(`https://${D.ACTIVITY}/globalReward/visitMall`, null, hdrs);
-  const vd = JSON.parse(vr.body);
-
-  let msg = '';
-  if (vd.success) {
-    msg = '✅ 领币成功';
-  } else {
-    const desc = vd.desc || '';
-    msg = /已|重复|already|visited|今天|今日/i.test(desc) ? '✅ 今日已领取' : `⚠️ ${desc}`;
+async function userInfo(token) {
+  // Loon 无 RSA 签名，用户信息校验优先依赖已抓包的 token；如需严格校验，请打开小程序刷新 token。
+  const signed = read('mxbc_customer_info_signed_url');
+  if (!signed) return null;
+  const res = await get(signed, miniHeaders(token));
+  const data = JSON.parse(res.body || '{}');
+  if (data.code === 0 && data.data) {
+    const phone = maskPhone(data.data.mobilePhone || '');
+    const point = data.data.customerPoint;
+    write(K.PHONE, phone);
+    write(K.POINT, point);
+    log(`用户有效: ${phone || '未知账号'}，雪王币 ${point}`);
   }
-
-  // 4. 确认余额
-  await new Promise(r => setTimeout(r, 600));
-  const b2 = await $get(`https://${D.ACTIVITY}/globalReward/accountBalance`, hdrs);
-  const bd2 = JSON.parse(b2.body);
-  const bal2 = (bd2.data && bd2.data.balance) || bal;
-  const diff = bal2 - bal;
-
-  const line = diff > 0 ? `银两 ${bal} → ${bal2} 🪙 +${diff}` : `银两 ${bal2} 🪙`;
-  console.log(`[mxbc] 📊 ${msg} | ${line}`);
-  $notify('🍦 蜜雪冰城 雪王铺', msg, line);
+  return data;
 }
 
-// ================================================================
-// 主流程
-// ================================================================
-(async () => {
-  console.log('\n[mxbc] ====== 🍦 蜜雪冰城 雪王铺签到 ======\n');
+async function getActivityLoginUrl(token) {
+  const duibaUrl = read(K.DUIBA_URL);
+  if (!duibaUrl) throw new Error('缺少 duiba 已签名 URL，请打开蜜雪冰城小程序进入雪王铺刷新');
+  const cid = read(K.CID) || '';
+  const headers = miniHeaders(token);
+  if (cid) headers['x-ssos-cid'] = cid;
+  log('📡 请求 duiba 登录链接...');
+  const res = await get(duibaUrl, headers);
+  let data;
+  try { data = JSON.parse(res.body || '{}'); } catch (_) { throw new Error('duiba 响应不是 JSON'); }
+  if (data.code !== 0 || !data.data || !data.data.loginUrl) {
+    write(K.DUIBA_URL, '');
+    throw new Error(`duiba URL 失效：${data.msg || '未知错误'}，请打开小程序刷新`);
+  }
+  write(K.ACTIVITY_URL, data.data.loginUrl);
+  return data.data.loginUrl;
+}
 
-  // --- 有缓存 cookie → 直接领币 ---
-  let ck = $read(K.CK);
+async function getActivityCookie(loginUrl) {
+  log('📡 获取活动 Cookie...');
+  const res = await get(loginUrl, {
+    'User-Agent': UA,
+    'Referer': `https://${ACTIVITY_HOST}/chw/visual-editor/skins?id=${SKIN_ID}`
+  });
+  const obj = cookieObj(res.headers['set-cookie']);
+  const ck = cookieStr(obj, ['wdata4', 'w_ts', '_ac', 'wdata3', 'dcustom', 'tokenId']);
+  if (!ck) throw new Error('未获取到完整活动 Cookie');
+  write(K.ACTIVITY_CK, ck);
+  log('✅ 获取活动 Cookie 成功');
+  return ck;
+}
+
+async function visitSnowMall(ck) {
+  const referer = `https://${ACTIVITY_HOST}/chw/visual-editor/skins?id=${SKIN_ID}&from=login&spm=76177.1.1.1`;
+  const headers = { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X)mxsa_mxbc', 'Referer': referer, 'Cookie': ck };
+  await get(`https://${ACTIVITY_HOST}/chome/index?from=login&spm=76177.1.1.1`, headers);
+  log('✅ 访问雪王铺成功');
+
+  // 兼容旧活动接口：能领则领，不能领不影响主流程。
+  try {
+    const h2 = { 'User-Agent': UA, 'Referer': referer, 'Cookie': ck };
+    const b1 = await get(`https://${ACTIVITY_HOST}/globalReward/accountBalance`, h2);
+    const d1 = JSON.parse(b1.body || '{}');
+    const before = Number(d1 && d1.data && d1.data.balance || 0);
+    const vr = await post(`https://${ACTIVITY_HOST}/globalReward/visitMall`, null, h2);
+    const vd = JSON.parse(vr.body || '{}');
+    const b2 = await get(`https://${ACTIVITY_HOST}/globalReward/accountBalance`, h2);
+    const d2 = JSON.parse(b2.body || '{}');
+    const after = Number(d2 && d2.data && d2.data.balance || before);
+    const diff = after - before;
+    const msg = vd.success ? '领币成功' : (/已|重复|already|visited|今天|今日/i.test(vd.desc || '') ? '今日已领取' : (vd.desc || '已访问'));
+    notify('🍦 蜜雪冰城 雪王铺', diff > 0 ? `✅ ${msg}` : `✅ ${msg}`, diff > 0 ? `银两 ${before} → ${after} 🪙 +${diff}` : `银两 ${after} 🪙`);
+    log(`${msg}，银两 ${before} → ${after}`);
+  } catch (e) {
+    notify('🍦 蜜雪冰城 雪王铺', '✅ 访问成功', '领币接口无响应或活动规则已变化');
+    log(`领币接口跳过：${e.message || e}`);
+  }
+}
+
+async function main() {
+  log('====== 🍦 蜜雪冰城 Loon 任务开始 ======');
+  let ck = read(K.ACTIVITY_CK);
   if (ck) {
-    console.log('[mxbc] 💾 有缓存 cookie');
     try {
-      await doReward(ck);
-      callDone();
+      log('💾 使用缓存活动 Cookie');
+      await visitSnowMall(ck);
+      done();
       return;
     } catch (e) {
-      console.log(`[mxbc] ⚠️ 直接领币失败: ${e.message || e}`);
+      log(`缓存 Cookie 失效：${e.message || e}`);
+      write(K.ACTIVITY_CK, '');
     }
   }
 
-  // --- 缓存失效 → 需刷新 ---
-  const token = $read(K.TOKEN);
-  const duibaUrl = $read(K.DUIBA);
-
-  if (!duibaUrl || !token) {
-    const reason = !duibaUrl && !token ? 'Token + duiba URL 均缺失' :
-                   !duibaUrl ? 'duiba URL 已过期' : 'Token 已过期';
-    console.log(`[mxbc] ❌ ${reason}`);
-    $notify('🍦 蜜雪冰城', '❌ 数据过期', reason + '\n请打开蜜雪冰城小程序');
-    callDone();
+  const token = read(K.TOKEN);
+  if (!token) {
+    notify('🍦 蜜雪冰城', '❌ 缺少 Token', '请打开蜜雪冰城小程序/APP，进入雪王铺页面完成抓包缓存');
+    done();
     return;
   }
 
-  const cid = $read(K.CID) || '';
-  const authH = { 'Content-Type': 'application/json', 'Access-Token': token, 'x-ssos-cid': cid, 'version': '2.8.31', 'User-Agent': UA };
-
   try {
-    // 请求 duiba URL → 获取 loginUrl
-    console.log('[mxbc] 📡 请求 duiba 登录链接...');
-    const dRes = await $get(duibaUrl, authH);
-
-    // 调试：打印原始响应
-    console.log(`[mxbc] 调试 duiba 响应 status: ${dRes.status}`);
-    console.log(`[mxbc] 调试 duiba body 长度: ${(dRes.body || '').length}`);
-    console.log(`[mxbc] 调试 duiba body 前100字符: ${(dRes.body || '').slice(0, 100)}`);
-
-    const dData = JSON.parse(dRes.body);
-
-    if (dData.code !== 0 || !dData.data?.loginUrl) {
-      $write(K.DUIBA, '');
-      console.log(`[mxbc] ❌ duiba 异常: ${dData.msg || '未知错误'}`);
-      $notify('🍦 蜜雪冰城', '❌ duiba 已过期', `${dData.msg || '未知错误'}\n请打开蜜雪冰城小程序刷新`);
-      callDone();
-      return;
-    }
-
-    const loginUrl = dData.data.loginUrl;
-    console.log('[mxbc] ✅ 获取 loginUrl，开始自动登录...');
-
-    // 访问 loginUrl → 302 → set-cookie
-    const lRes = await $get(loginUrl, {
-      'User-Agent': UA,
-      'Referer': `https://${D.ACTIVITY}/chw/visual-editor/skins?id=${D.SKIN_ID}`
-    });
-
-    const sc = lRes.headers['Set-Cookie'] || lRes.headers['set-cookie'];
-    const cookies = scToObj(sc);
-
-    if (!cookies.tokenId && !cookies.wdata4) {
-      throw new Error('autoLogin 返回的 cookie 不完整');
-    }
-
-    const newCk = Object.entries(cookies)
-      .filter(([_, v]) => v)
-      .map(([k, v]) => `${k}=${v}`)
-      .join('; ');
-    $write(K.CK, newCk);
-    console.log(`[mxbc] ✅ 自动登录成功 (${Object.keys(cookies).length} 项 cookie)`);
-
-    await doReward(newCk);
-
+    try { await userInfo(token); } catch (_) {}
+    const loginUrl = await getActivityLoginUrl(token);
+    ck = await getActivityCookie(loginUrl);
+    await visitSnowMall(ck);
   } catch (e) {
-    console.log(`[mxbc] ❌ ${e.message || e}`);
-    if (ck) { try { await doReward(ck); } catch(_) {} }
-    $notify('🍦 蜜雪冰城', '❌ 签到失败', e.message || '未知错误');
+    const msg = e.message || String(e);
+    log(`❌ ${msg}`);
+    notify('🍦 蜜雪冰城', '❌ 任务失败', msg);
   }
+  done();
+}
 
-  callDone();
-})();
+if (isRequest && !isResponse) onRequest();
+else if (isRequest && isResponse) onResponse();
+else main();

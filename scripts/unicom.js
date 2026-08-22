@@ -15,7 +15,7 @@
  *   mode     ：daily（默认，登录+资产+签到） / query（仅查询资产与签到状态）
  */
 
-const SCRIPT_VERSION = "1.1.2-loon";
+const SCRIPT_VERSION = "1.1.3-loon";
 const UA = "Dalvik/2.1.0 (Linux; U; Android 12; Mi 10 Pro MIUI/21.11.3);unicom{version:android@11.0802}";
 const MARKET_UA = UA;
 const STORE_KEY = "china_unicom_token_appid";
@@ -133,42 +133,48 @@ function maskStr(s) {
 }
 
 function parseArgs() {
-  const raw = String($argument || "").trim();
-  let parsedArgs;
-  if (raw.includes("|")) {
-    // 管道符分隔：token|cronexp|mode
-    const parts = raw.split("|");
-    parsedArgs = {
-      token: (parts[0] || "").trim(),
-      cronexp: (parts[1] || "").trim(),
-      mode: (parts[2] || "daily").trim().toLowerCase(),
-    };
-  } else {
-    // 兼容 JSON 数组 [token,cronexp,mode] 或裸 token
-    try {
-      const parsed = JSON.parse(raw);
-      const arr = Array.isArray(parsed) ? parsed : [parsed];
+  try {
+    const raw = String($argument || "").trim();
+    let parsedArgs;
+    if (raw.includes("|")) {
+      // 管道符分隔：token|cronexp|mode
+      const parts = raw.split("|");
       parsedArgs = {
-        token: String(arr[0] || "").trim(),
-        cronexp: String(arr[1] || "").trim(),
-        mode: String(arr[2] || "daily").trim().toLowerCase(),
+        token: (parts[0] || "").trim(),
+        cronexp: (parts[1] || "").trim(),
+        mode: (parts[2] || "daily").trim().toLowerCase(),
       };
-    } catch (e) {
-      parsedArgs = { token: raw, cronexp: "", mode: "daily" };
+    } else {
+      // 兼容 JSON 数组 [token,cronexp,mode] 或裸 token
+      try {
+        const parsed = JSON.parse(raw);
+        const arr = Array.isArray(parsed) ? parsed : [parsed];
+        parsedArgs = {
+          token: String(arr[0] || "").trim(),
+          cronexp: String(arr[1] || "").trim(),
+          mode: String(arr[2] || "daily").trim().toLowerCase(),
+        };
+      } catch (e) {
+        parsedArgs = { token: raw, cronexp: "", mode: "daily" };
+      }
     }
-  }
 
-  // Loon 某些版本不会在 argument= 内展开 {argN}，遇到字面量时兜底
-  if (/^\{arg\d+\}$/.test(parsedArgs.token || "") || parsedArgs.token === "placeholder") parsedArgs.token = "";
-  if (/^\{arg\d+\}$/.test(parsedArgs.cronexp || "")) parsedArgs.cronexp = "";
-  if (!parsedArgs.mode || /^\{arg\d+\}$/.test(parsedArgs.mode) || !/^(daily|query)$/.test(parsedArgs.mode)) parsedArgs.mode = "daily";
+    // Loon 某些版本不会在 argument= 内展开 {argN}，遇到字面量时兜底
+    if (/^\{arg\d+\}$/.test(parsedArgs.token || "") || parsedArgs.token === "placeholder") parsedArgs.token = "";
+    if (/^\{arg\d+\}$/.test(parsedArgs.cronexp || "")) parsedArgs.cronexp = "";
+    if (!parsedArgs.mode || /^\{arg\d+\}$/.test(parsedArgs.mode) || !/^(daily|query)$/.test(parsedArgs.mode)) parsedArgs.mode = "daily";
 
-  // 参数页未填写 token 时，自动使用抓包保存的 Token#AppId
-  if (!parsedArgs.token) {
-    const saved = storeRead(STORE_KEY);
-    if (saved) parsedArgs.token = saved;
+    // 参数页未填写 token 时，自动使用抓包保存的 Token#AppId
+    if (!parsedArgs.token) {
+      const saved = storeRead(STORE_KEY);
+      if (saved) parsedArgs.token = saved;
+    }
+    return parsedArgs;
+  } catch (e) {
+    // 极端情况下返回安全默认值，避免脚本因参数解析而中断
+    console.log(`[Parse Args Fallback] ${e && e.message ? e.message : e}`);
+    return { token: "", cronexp: "", mode: "daily" };
   }
-  return parsedArgs;
 }
 
 function parseAccounts(tokenStr) {

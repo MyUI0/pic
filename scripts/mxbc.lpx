@@ -1,0 +1,21 @@
+#!name=蜜雪冰城雪王铺
+#!desc=蜜雪冰城/雪王铺 Loon 插件。自动抓包缓存 Access-Token、duiba 已签名 URL、活动 Cookie；定时访问雪王铺并兼容尝试领币。
+#!date=2026-08-22
+#!author=也也
+#!homepage=https://mxsa.mxbc.net
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/IceCream.png
+#!loon_version=3.2.4(787)
+
+[Argument]
+arg1 = switch,true,tag=启用雪王铺签到
+arg2 = switch,true,tag=抓取蜜雪Token和duiba
+arg3 = switch,true,tag=抓取雪王铺Cookie
+arg4 = input,"30 8 * * *",tag=签到时间
+
+[Script]
+cron {arg4} script-path=mxbc_loon.js, timeout=60, enable={arg1}, tag=蜜雪冰城_雪王铺签到
+http-request ^https?:\/\/mxsa\.mxbc\.net\/api\/v1\/(customer\/info|duiba\/getLoginUrl|app\/regByUnionid|app\/code2Session) script-path=mxbc.js, requires-body=false, timeout=30, enable={arg2}, tag=蜜雪冰城_抓取Token与duiba
+http-response ^https?:\/\/76177-activity\.dexfu\.cn\/.* script-path=mxbc.js, requires-body=false, timeout=30, enable={arg3}, tag=蜜雪冰城_抓取活动Cookie
+
+[MITM]
+hostname = mxsa.mxbc.net, 76177-activity.dexfu.cn

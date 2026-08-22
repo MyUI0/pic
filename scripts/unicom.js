@@ -694,8 +694,19 @@ async function main() {
 }
 
 // Loon http-request 抓包入口：只负责保存 Token#AppId，不执行签到流程
-if (!captureTokenIfNeeded()) main().catch((e) => {
-  console.log(`[Fatal] ${e && e.stack ? e.stack : e}`);
-  try { $notification.post("中国联通", "脚本异常", String(e)); } catch (_) {}
-  $done();
-});
+if (typeof $request !== "undefined") {
+   // http-request context
+   if (captureTokenIfNeeded()) {
+      // captureTokenIfNeeded already called $done()
+   } else {
+      // not a token request, just end
+      try { $done({}); } catch (_) { $done(); }
+   }
+} else {
+   // cron context
+   main().catch((e) => {
+      console.log(`[Fatal] ${e && e.stack ? e.stack : e}`);
+      try { $notification.post("中国联通", "脚本异常", String(e)); } catch (_) {}
+      $done();
+   });
+}

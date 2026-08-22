@@ -1,0 +1,29 @@
+#!name=快手签到与金币任务
+#!desc=合并版：快手纯签到 + 快手广告金币任务精简版。可只开启纯签到；广告任务默认关闭，签名服务和轮数均可配置。
+#!date=2026-08-22
+#!author=converted by 也也
+#!homepage=https://github.com/1nbeat/kuaishou-check-in
+#!loon_version=3.2.4(787)
+
+[Argument]
+arg1 = switch,true,tag=启用纯签到
+arg2 = switch,true,tag=抓取签到Token
+arg3 = input,"0 5 * * *",tag=纯签到时间
+arg4 = switch,false,tag=启用广告金币任务
+arg5 = switch,true,tag=抓取广告任务Cookie
+arg6 = input,"3",tag=广告任务轮数(1-20)
+arg7 = select,"all","all","box","look","search",tag=广告任务类型
+arg8 = input,"http://103.24.218.196:6161",tag=极速版签名服务
+arg9 = input,"http://103.24.218.196:6162",tag=普通版签名服务
+arg10 = input,"35",tag=广告等待秒数(5-60)
+arg11 = input,"30 7 * * *",tag=广告任务时间
+
+[Script]
+cron {arg3} script-path=kuaishou_sign_only.js, timeout=60, enable={arg1}, tag=快手纯签到
+http-request ^https?:\/\/(nebula|www|api|apissl|app)\.kuaishou\.com\/.* script-path=kuaishou_sign_only.js, requires-body=false, timeout=10, enable={arg2}, tag=快手签到抓取Token
+
+cron {arg11} script-path=ks_ad_loon.js, argument={arg6}|{arg7}|{arg8}|{arg9}|{arg10}, timeout=900, enable={arg4}, tag=快手广告金币任务
+http-request ^https?:\/\/(nebula|encourage|api\.e|www|api|apissl|app)\.kuaishou\.com\/.* script-path=ks_ad_loon.js, requires-body=false, timeout=10, enable={arg5}, tag=快手广告任务抓取Cookie
+
+[MITM]
+hostname = nebula.kuaishou.com, encourage.kuaishou.com, api.e.kuaishou.com, www.kuaishou.com, api.kuaishou.com, apissl.kuaishou.com, app.kuaishou.com

@@ -10,7 +10,7 @@ arg1 = switch,true,tag=启用纯签到
 arg2 = switch,true,tag=抓取签到Token
 arg3 = input,"0 5 * * *",tag=纯签到时间
 arg4 = switch,false,tag=启用广告金币任务
-arg5 = switch,true,tag=抓取广告任务Cookie
+arg5 = switch,false,tag=抓取广告任务Cookie
 arg6 = input,"3",tag=广告任务轮数(1-20)
 arg7 = select,"all","all","box","look","search",tag=广告任务类型
 arg8 = input,"http://103.24.218.196:6161",tag=极速版签名服务
@@ -22,7 +22,7 @@ arg11 = input,"30 7 * * *",tag=广告任务时间
 cron {arg3} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/ksonly.js, timeout=60, enable={arg1}, tag=快手纯签到
 http-request ^https?:\/\/(nebula|www|api|apissl|app)\.kuaishou\.com\/.* script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/ksonly.js, requires-body=false, timeout=10, enable={arg2}, tag=快手签到抓取Token
 
-cron {arg11} script-path=ks_adhttps://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/ks.js, argument={arg6}|{arg7}|{arg8}|{arg9}|{arg10}, timeout=900, enable={arg4}, tag=快手广告金币任务
+cron {arg11} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/ks.js, argument={arg6}|{arg7}|{arg8}|{arg9}|{arg10}, timeout=900, enable={arg4}, tag=快手广告金币任务
 http-request ^https?:\/\/(nebula|encourage|api\.e|www|api|apissl|app)\.kuaishou\.com\/.* script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/ks.js, requires-body=false, timeout=10, enable={arg5}, tag=快手广告任务抓取Cookie
 
 [MITM]

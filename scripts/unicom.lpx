@@ -1,5 +1,5 @@
 #!name=中国联通 每日签到
-#!desc=中国联通自动化：自动抓包保存 Token#AppId，定时读取已保存凭证执行签到；抓取和签到开关分离。
+#!desc=中国联通自动化：自动抓包保存 Token#AppId，单账号覆盖模式，定时读取已保存凭证执行签到；抓取和签到开关分离。
 #!date=2026-08-22
 #!author=converted by 也也
 #!homepage=https://github.com/wangye528/china-unicom-surge

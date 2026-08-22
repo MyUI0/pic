@@ -15,10 +15,12 @@
  *   mode     ：daily（默认，登录+资产+签到） / query（仅查询资产与签到状态）
  */
 
-const SCRIPT_VERSION = "1.1.4-loon";
+const SCRIPT_VERSION = "1.1.7-loon";
 const UA = "Dalvik/2.1.0 (Linux; U; Android 12; Mi 10 Pro MIUI/21.11.3);unicom{version:android@11.0802}";
 const MARKET_UA = UA;
 const STORE_KEY = "china_unicom_token_appid";
+// TODO(BoxJS 多账号版备忘): 后续可新增 china_unicom_accounts，用数组管理多个账号：
+// [{ name, token_online, appId, enabled }]，支持启用/停用/删除/备注。当前版本保持单账号覆盖模式。
 
 // ---------------------------------------------------------------
 // Loon 抓包保存 Token#AppId
@@ -40,6 +42,18 @@ function storeWrite(value, key) {
   } catch (_) {}
   return false;
 }
+
+function saveCapturedToken(tokenPair) {
+  const old = storeRead(STORE_KEY);
+  const ok = storeWrite(tokenPair, STORE_KEY);
+  return { ok, changed: old !== tokenPair };
+}
+
+// TODO(BoxJS 多账号版备忘):
+// 1. readAccounts(): 从 BoxJS / persistentStore 读取账号数组。
+// 2. saveCapturedToken(): 当前账号覆盖；未来可按手机号/appId 追加或更新。
+// 3. main(): 遍历 enabled=true 的账号逐个签到。
+// 4. 管理字段建议：name、token_online、appId、enabled、last_update、remark。
 
 function parseFormBody(body) {
   const out = {};
@@ -96,11 +110,9 @@ function captureTokenIfNeeded() {
 
   if (token && appId) {
     const tokenPair = `${token}#${appId}`;
-    const old = storeRead(STORE_KEY);
-    const ok = storeWrite(tokenPair, STORE_KEY);
+    const saved = saveCapturedToken(tokenPair);
     const masked = maskStr(token) + "#" + maskStr(appId);
-    if (ok && old !== tokenPair) notify("中国联通", "Token#AppId 已更新", masked);
-    else if (ok) notify("中国联通", "Token#AppId 已存在", masked);
+    if (saved.ok) notify("中国联通", saved.changed ? "✅ Token#AppId 已覆盖保存" : "✅ Token#AppId 未变化", masked);
     else notify("中国联通", "Token#AppId 保存失败", "请检查 Loon 持久化存储权限");
   } else {
     // 放宽匹配后会进来很多请求，没 token 的请求静默跳过，避免通知刷屏
@@ -133,12 +145,12 @@ function maskStr(s) {
 }
 
 function parseArgs() {
-  // 与 Heaizo 示例保持一致：cron 不依赖 argument，直接读取 http-request 抓包保存的凭证
+  // 当前版本：单账号模式。cron 不依赖 argument，直接读取 http-request 抓包覆盖保存的凭证。
   let token = storeRead(STORE_KEY);
   let mode = "daily";
   let cronexp = "";
 
-  // 兼容手动运行或旧版插件传入 argument 的情况；Loon cron 通常没有 $argument
+  // 兼容手动运行或旧版插件传入 argument 的情况；传入有效 token 时也只覆盖为单账号。
   try {
     if (typeof $argument !== "undefined" && $argument !== null) {
       const raw = String($argument || "").trim();
@@ -148,11 +160,15 @@ function parseArgs() {
           const argToken = (parts[0] || "").trim();
           const argCron = (parts[1] || "").trim();
           const argMode = (parts[2] || "").trim().toLowerCase();
-          if (argToken && argToken !== "placeholder" && !/^\{arg\d+\}$/.test(argToken)) token = argToken;
+          if (argToken && argToken !== "placeholder" && !/^\{arg\d+\}$/.test(argToken)) {
+            token = argToken.split(/[&\n]/)[0].trim();
+            storeWrite(token, STORE_KEY);
+          }
           if (argCron && !/^\{arg\d+\}$/.test(argCron)) cronexp = argCron;
           if (/^(daily|query)$/.test(argMode)) mode = argMode;
         } else if (raw !== "placeholder" && !/^\{arg\d+\}$/.test(raw)) {
-          token = raw;
+          token = raw.split(/[&\n]/)[0].trim();
+          storeWrite(token, STORE_KEY);
         }
       }
     }
@@ -211,8 +227,20 @@ class UserService {
   cookieHeader(extra) {
     const parts = [this.cookie_string, `token_online=${this.token_online}`];
     if (this.appId) parts.push(`appId=${this.appId}`);
+    if (this.ecs_token) parts.push(`ecs_token=${this.ecs_token}`);
+    if (this.t3_token) parts.push(`t3_token=${this.t3_token}`);
+    if (this.private_token) parts.push(`private_token=${this.private_token}`);
     if (extra) parts.push(extra);
     return parts.join("; ");
+  }
+
+  signHeaders(extraHeaders = {}) {
+    return Object.assign({
+      "User-Agent": MARKET_UA,
+      "Cookie": this.cookieHeader(),
+      "Origin": "https://img.client.10010.com",
+      "Referer": "https://img.client.10010.com/",
+    }, extraHeaders || {});
   }
 
   // 对应 Python UserService.request：自动带上 Cookie，JSON 解析失败返回 null
@@ -375,7 +403,7 @@ class UserService {
 
   async sign_getContinuous(is_query_only = false) {
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/signin/getContinuous";
-    const res = await this.request("get", url, { params: { taskId: "", channel: "wode", imei: this.uuid } });
+    const res = await this.request("get", url, { params: { taskId: "", channel: "wode", imei: this.uuid }, headers: this.signHeaders() });
     if (!res) return;
     const code = res.code;
     if (code === "0000") {
@@ -396,7 +424,7 @@ class UserService {
 
   async sign_daySign() {
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/signin/daySign";
-    const res = await this.request("post", url, { data: {} });
+    const res = await this.request("post", url, { data: {}, headers: this.signHeaders() });
     if (!res) return;
     const code = res.code;
     if (code === "0000") {
@@ -411,7 +439,7 @@ class UserService {
 
   async sign_getTelephone(is_initial = false, silent = false) {
     const url = "https://act.10010.com/SigninApp/convert/getTelephone";
-    const res = await this.request("post", url, { data: {} });
+    const res = await this.request("post", url, { data: {}, headers: this.signHeaders() });
     if (!res) return null;
     const status = res.status;
     if (status === "0000" && res.data) {
@@ -440,7 +468,7 @@ class UserService {
 
   async sign_getTaskList() {
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/taskList";
-    const headers = { "Referer": "https://img.client.10010.com/" };
+    const headers = this.signHeaders();
     for (let i = 0; i < 30; i++) {
       const res = await this.request("get", url, { params: { type: "2" }, headers, timeout: 10000 });
       if (!res) return;
@@ -487,13 +515,13 @@ class UserService {
 
   async sign_doTaskFromList(task) {
     if (task.url && task.url !== "1" && String(task.url).startsWith("http")) {
-      await this.request("get", task.url, { headers: { "Referer": "https://img.client.10010.com/" } });
+      await this.request("get", task.url, { headers: this.signHeaders() });
       this.log(`签到区-任务中心: 浏览页面 [${task.taskName}]`);
       await sleep(5000 + Math.floor(Math.random() * 2000)); // 5~7 秒
     }
     const orderId = await this.gettaskip();
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/completeTask";
-    const res = await this.request("get", url, { params: { taskId: task.id, orderId, systemCode: "QDQD" } });
+    const res = await this.request("get", url, { params: { taskId: task.id, orderId, systemCode: "QDQD" }, headers: this.signHeaders() });
     if (!res) return;
     const code = res.code;
     if (code === "0000") {
@@ -505,7 +533,7 @@ class UserService {
 
   async sign_getTaskReward(task_id) {
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/getTaskReward";
-    const res = await this.request("get", url, { params: { taskId: task_id } });
+    const res = await this.request("get", url, { params: { taskId: task_id }, headers: this.signHeaders() });
     if (!res) return;
     const code = res.code;
     if (code === "0000") {
@@ -522,7 +550,7 @@ class UserService {
 
   async sign_month_sign_gift(is_query_only = false) {
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/floor/getMonthSign";
-    const res = await this.request("get", url, { headers: { "Referer": "https://img.client.10010.com/" }, timeout: 10000 });
+    const res = await this.request("get", url, { headers: this.signHeaders(), timeout: 10000 });
     if (!res) return;
     const code = res.code;
     if (code !== "0000") {
@@ -555,7 +583,7 @@ class UserService {
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/getTaskReward";
     const res = await this.request("get", url, {
       params: { taskId: task.taskId, taskType: "30", id: task.id },
-      headers: { "Referer": "https://img.client.10010.com/" },
+      headers: this.signHeaders(),
       timeout: 10000,
     });
     if (!res) return;
@@ -577,7 +605,7 @@ class UserService {
     const url = "https://act.10010.com/SigninApp/convert/phoneDetails";
     const res = await this.request("post", url, {
       data: { log_type: "1", number: "1", list_num: "" },
-      headers: { "Origin": "https://img.client.10010.com" },
+      headers: this.signHeaders(),
     });
     if (!res) return;
     if (res.status === "0000") {

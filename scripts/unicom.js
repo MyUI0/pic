@@ -15,7 +15,7 @@
  *   mode     ：daily（默认，登录+资产+签到） / query（仅查询资产与签到状态）
  */
 
-const SCRIPT_VERSION = "1.1.3-loon";
+const SCRIPT_VERSION = "1.1.4-loon";
 const UA = "Dalvik/2.1.0 (Linux; U; Android 12; Mi 10 Pro MIUI/21.11.3);unicom{version:android@11.0802}";
 const MARKET_UA = UA;
 const STORE_KEY = "china_unicom_token_appid";
@@ -133,48 +133,34 @@ function maskStr(s) {
 }
 
 function parseArgs() {
+  // 与 Heaizo 示例保持一致：cron 不依赖 argument，直接读取 http-request 抓包保存的凭证
+  let token = storeRead(STORE_KEY);
+  let mode = "daily";
+  let cronexp = "";
+
+  // 兼容手动运行或旧版插件传入 argument 的情况；Loon cron 通常没有 $argument
   try {
-    const raw = String($argument || "").trim();
-    let parsedArgs;
-    if (raw.includes("|")) {
-      // 管道符分隔：token|cronexp|mode
-      const parts = raw.split("|");
-      parsedArgs = {
-        token: (parts[0] || "").trim(),
-        cronexp: (parts[1] || "").trim(),
-        mode: (parts[2] || "daily").trim().toLowerCase(),
-      };
-    } else {
-      // 兼容 JSON 数组 [token,cronexp,mode] 或裸 token
-      try {
-        const parsed = JSON.parse(raw);
-        const arr = Array.isArray(parsed) ? parsed : [parsed];
-        parsedArgs = {
-          token: String(arr[0] || "").trim(),
-          cronexp: String(arr[1] || "").trim(),
-          mode: String(arr[2] || "daily").trim().toLowerCase(),
-        };
-      } catch (e) {
-        parsedArgs = { token: raw, cronexp: "", mode: "daily" };
+    if (typeof $argument !== "undefined" && $argument !== null) {
+      const raw = String($argument || "").trim();
+      if (raw) {
+        if (raw.includes("|")) {
+          const parts = raw.split("|");
+          const argToken = (parts[0] || "").trim();
+          const argCron = (parts[1] || "").trim();
+          const argMode = (parts[2] || "").trim().toLowerCase();
+          if (argToken && argToken !== "placeholder" && !/^\{arg\d+\}$/.test(argToken)) token = argToken;
+          if (argCron && !/^\{arg\d+\}$/.test(argCron)) cronexp = argCron;
+          if (/^(daily|query)$/.test(argMode)) mode = argMode;
+        } else if (raw !== "placeholder" && !/^\{arg\d+\}$/.test(raw)) {
+          token = raw;
+        }
       }
     }
-
-    // Loon 某些版本不会在 argument= 内展开 {argN}，遇到字面量时兜底
-    if (/^\{arg\d+\}$/.test(parsedArgs.token || "") || parsedArgs.token === "placeholder") parsedArgs.token = "";
-    if (/^\{arg\d+\}$/.test(parsedArgs.cronexp || "")) parsedArgs.cronexp = "";
-    if (!parsedArgs.mode || /^\{arg\d+\}$/.test(parsedArgs.mode) || !/^(daily|query)$/.test(parsedArgs.mode)) parsedArgs.mode = "daily";
-
-    // 参数页未填写 token 时，自动使用抓包保存的 Token#AppId
-    if (!parsedArgs.token) {
-      const saved = storeRead(STORE_KEY);
-      if (saved) parsedArgs.token = saved;
-    }
-    return parsedArgs;
   } catch (e) {
-    // 极端情况下返回安全默认值，避免脚本因参数解析而中断
-    console.log(`[Parse Args Fallback] ${e && e.message ? e.message : e}`);
-    return { token: "", cronexp: "", mode: "daily" };
+    console.log(`[Parse Args Ignore] ${e && e.message ? e.message : e}`);
   }
+
+  return { token: token || "", cronexp, mode };
 }
 
 function parseAccounts(tokenStr) {
@@ -662,7 +648,7 @@ async function main() {
   const args = parseArgs();
   const accounts = parseAccounts(args.token);
   if (!accounts.length || accounts.every(a => !a.token || a.token === "placeholder")) {
-    $notification.post("中国联通", "", "未在模块参数中配置 Token，请先填写 token");
+    $notification.post("中国联通", "⚠️ 未配置账号", "请先打开自动抓包开关，然后进入中国联通 App 触发一次登录/刷新，看到 Token#AppId 已更新后再执行签到");
     $done();
     return;
   }

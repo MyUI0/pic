@@ -9,7 +9,7 @@
 [Argument]
 arg1 = switch,true,tag=启用每日签到
 arg2 = switch,true,tag=自动抓包更新 Token#AppId
-arg3 = input,"placeholder",tag=Token#AppId，多账号用 & 分隔；留 placeholder 可使用抓包保存值
+arg3 = input,"placeholder",tag=Token#AppId
 arg4 = input,"0 8 * * *",tag=签到时间 Cron
 arg5 = select,"daily",tag=运行模式,items=daily|query
 

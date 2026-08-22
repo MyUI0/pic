@@ -1,6 +1,6 @@
 #!name=中国联通 每日签到
-#!desc=中国联通自动化：插件页填写 Token#AppId，也可开启抓包自动更新长期凭证；支持资产查询、每日签到、月签有礼、任务中心、话费红包，多账号支持。
-#!date=2026-08-21
+#!desc=中国联通自动化：自动抓包保存 Token#AppId，定时读取已保存凭证执行签到；抓取和签到开关分离。
+#!date=2026-08-22
 #!author=converted by 也也
 #!homepage=https://github.com/wangye528/china-unicom-surge
 #!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/China_Unicom.png
@@ -9,12 +9,10 @@
 [Argument]
 arg1 = switch,true,tag=启用每日签到
 arg2 = switch,true,tag=自动抓包更新 Token#AppId
-arg3 = input,"placeholder",tag=Token#AppId
-arg4 = input,"0 8 * * *",tag=签到时间 Cron
-arg5 = select,"daily",tag=运行模式,items=daily|query
+arg3 = input,"0 8 * * *",tag=签到时间
 
 [Script]
-cron {arg4} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/unicom.js, argument="{arg3}|{arg4}|{arg5}", timeout=180, enable={arg1}, tag=中国联通每日签到
+cron {arg3} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/unicom.js, timeout=180, enable={arg1}, tag=中国联通每日签到
 http-request ^https?:\/\/m\.client\.10010\.com\/.* script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/unicom.js, requires-body=true, timeout=10, enable={arg2}, tag=中国联通自动抓包更新Token
 
 [MITM]

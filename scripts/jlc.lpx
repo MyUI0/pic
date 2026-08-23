@@ -1,0 +1,18 @@
+#!name=嘉立创 每日签到
+#!desc=嘉立创小程序签到：自动抓包保存 x-jlc-accesstoken + secretkey，单账号覆盖模式，定时读取已保存凭证执行签到并查询豆豆余额；抓取和签到开关分离。
+#!date=2026-08-23
+#!author=converted by 也也
+#!icon=https://m.jlc.com/favicon.ico
+#!loon_version=3.2.4(787)
+
+[Argument]
+arg1 = switch,true,tag=启用每日签到
+arg2 = switch,true,tag=自动抓包更新凭证
+arg3 = input,"0 8 * * *",tag=签到时间
+
+[Script]
+cron {arg3} script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/jlc.js, timeout=60, enable={arg1}, tag=嘉立创每日签到
+http-request ^https?:\/\/m\.jlc\.com\/api\/.* script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/jlc.js, requires-body=false, timeout=10, enable={arg2}, tag=嘉立创自动抓包更新凭证
+
+[MITM]
+hostname = m.jlc.com

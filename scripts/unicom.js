@@ -15,7 +15,7 @@
  *   mode     ：daily（默认，登录+资产+签到） / query（仅查询资产与签到状态）
  */
 
-const SCRIPT_VERSION = "1.1.8-loon";
+const SCRIPT_VERSION = "1.1.9-loon";
 const UA = "Dalvik/2.1.0 (Linux; U; Android 12; Mi 10 Pro MIUI/21.11.3);unicom{version:android@11.0802}";
 const MARKET_UA = UA;
 const STORE_KEY = "china_unicom_token_appid";
@@ -410,7 +410,7 @@ class UserService {
 
   async sign_getContinuous(is_query_only = false) {
     this.log("正在查询每日签到状态...");
-    const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/signin/getContinuous";
+    const url = "https://activity.10010.com/sixPalaceGridTurntableLottery/signin/getContinuous";
     const res = await this.request("get", url, { params: { taskId: "", channel: "wode", imei: this.uuid }, headers: this.signHeaders() });
     if (!res) {
       this.log("签到区查询签到状态失败: 接口无有效 JSON 响应");
@@ -442,7 +442,7 @@ class UserService {
   }
 
   async sign_daySign() {
-    const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/signin/daySign";
+    const url = "https://activity.10010.com/sixPalaceGridTurntableLottery/signin/daySign";
     const res = await this.request("post", url, { data: {}, headers: this.signHeaders() });
     if (!res) { this.log("签到区签到失败: 接口无有效 JSON 响应"); return; }
     const code = res.code;
@@ -487,7 +487,7 @@ class UserService {
 
   async sign_getTaskList() {
     this.log("正在查询任务中心...");
-    const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/taskList";
+    const url = "https://activity.10010.com/sixPalaceGridTurntableLottery/task/taskList";
     const headers = this.signHeaders();
     for (let i = 0; i < 30; i++) {
       const res = await this.request("get", url, { params: { type: "2" }, headers, timeout: 10000 });
@@ -540,7 +540,7 @@ class UserService {
       await sleep(5000 + Math.floor(Math.random() * 2000)); // 5~7 秒
     }
     const orderId = await this.gettaskip();
-    const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/completeTask";
+    const url = "https://activity.10010.com/sixPalaceGridTurntableLottery/task/completeTask";
     const res = await this.request("get", url, { params: { taskId: task.id, orderId, systemCode: "QDQD" }, headers: this.signHeaders() });
     if (!res) return;
     const code = res.code;
@@ -552,7 +552,7 @@ class UserService {
   }
 
   async sign_getTaskReward(task_id) {
-    const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/getTaskReward";
+    const url = "https://activity.10010.com/sixPalaceGridTurntableLottery/task/getTaskReward";
     const res = await this.request("get", url, { params: { taskId: task_id }, headers: this.signHeaders() });
     if (!res) return;
     const code = res.code;
@@ -570,7 +570,7 @@ class UserService {
 
   async sign_month_sign_gift(is_query_only = false) {
     this.log("正在查询月签有礼...");
-    const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/floor/getMonthSign";
+    const url = "https://activity.10010.com/sixPalaceGridTurntableLottery/floor/getMonthSign";
     const res = await this.request("get", url, { headers: this.signHeaders(), timeout: 10000 });
     if (!res) { this.log("签到区-月签有礼: 接口无有效 JSON 响应"); return; }
     const code = res.code;
@@ -601,7 +601,7 @@ class UserService {
 
   async sign_get_month_sign_reward(task) {
     const task_name = task.taskName || "月签奖励";
-    const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/getTaskReward";
+    const url = "https://activity.10010.com/sixPalaceGridTurntableLottery/task/getTaskReward";
     const res = await this.request("get", url, {
       params: { taskId: task.taskId, taskType: "30", id: task.id },
       headers: this.signHeaders(),

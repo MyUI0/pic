@@ -15,7 +15,7 @@
  *   mode     ：daily（默认，登录+资产+签到） / query（仅查询资产与签到状态）
  */
 
-const SCRIPT_VERSION = "1.1.7-loon";
+const SCRIPT_VERSION = "1.1.8-loon";
 const UA = "Dalvik/2.1.0 (Linux; U; Android 12; Mi 10 Pro MIUI/21.11.3);unicom{version:android@11.0802}";
 const MARKET_UA = UA;
 const STORE_KEY = "china_unicom_token_appid";
@@ -282,8 +282,15 @@ class UserService {
           return;
         }
         try {
+          if (raw && typeof raw === "object") {
+            resolve(raw);
+            return;
+          }
           resolve(JSON.parse(raw));
         } catch (e) {
+          const status = response && (response.status || response.statusCode) ? (response.status || response.statusCode) : "-";
+          const snippet = String(raw || "").replace(/\s+/g, " ").slice(0, 180);
+          this.log(`请求返回非JSON: status=${status}, body=${snippet || "<empty>"}`);
           resolve(null);
         }
       };
@@ -402,9 +409,17 @@ class UserService {
   }
 
   async sign_getContinuous(is_query_only = false) {
+    this.log("正在查询每日签到状态...");
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/signin/getContinuous";
     const res = await this.request("get", url, { params: { taskId: "", channel: "wode", imei: this.uuid }, headers: this.signHeaders() });
-    if (!res) return;
+    if (!res) {
+      this.log("签到区查询签到状态失败: 接口无有效 JSON 响应");
+      if (!is_query_only) {
+        this.log("签到区: 状态查询失败，兜底尝试直接签到...");
+        await this.sign_daySign();
+      }
+      return;
+    }
     const code = res.code;
     if (code === "0000") {
       const todayIsSignIn = (res.data || {}).todayIsSignIn || "n";
@@ -418,22 +433,26 @@ class UserService {
         this.log("签到区: [查询模式] 跳过自动打卡");
       }
     } else {
-      this.log(`签到区查询签到状态失败[${code}]: ${res.desc || ""}`);
+      this.log(`签到区查询签到状态失败[${code}]: ${res.desc || res.msg || ""}`);
+      if (!is_query_only) {
+        this.log("签到区: 状态异常，兜底尝试直接签到...");
+        await this.sign_daySign();
+      }
     }
   }
 
   async sign_daySign() {
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/signin/daySign";
     const res = await this.request("post", url, { data: {}, headers: this.signHeaders() });
-    if (!res) return;
+    if (!res) { this.log("签到区签到失败: 接口无有效 JSON 响应"); return; }
     const code = res.code;
     if (code === "0000") {
       const d = res.data || {};
-      this.log(`签到区签到成功: [${d.statusDesc || ""}]${d.redSignMessage || ""}`);
+      this.log(`签到区签到成功: [${d.statusDesc || ""}]${d.redSignMessage || ""}`, true);
     } else if (code === "0002" && String(res.desc || "").includes("已经签到")) {
-      this.log("签到区签到成功: 今日已完成签到！");
+      this.log("签到区签到成功: 今日已完成签到！", true);
     } else {
-      this.log(`签到区签到失败[${code}]: ${res.desc || ""}`);
+      this.log(`签到区签到失败[${code}]: ${res.desc || res.msg || ""}`, true);
     }
   }
 
@@ -467,11 +486,12 @@ class UserService {
   }
 
   async sign_getTaskList() {
+    this.log("正在查询任务中心...");
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/task/taskList";
     const headers = this.signHeaders();
     for (let i = 0; i < 30; i++) {
       const res = await this.request("get", url, { params: { type: "2" }, headers, timeout: 10000 });
-      if (!res) return;
+      if (!res) { this.log("签到区-任务中心: 接口无有效 JSON 响应"); return; }
       const code = res.code;
       if (code === "0329" || String(res.desc || "").includes("火爆")) {
         this.log("签到区: 系统繁忙(0329)，停止后续尝试");
@@ -549,9 +569,10 @@ class UserService {
   }
 
   async sign_month_sign_gift(is_query_only = false) {
+    this.log("正在查询月签有礼...");
     const url = "https://activity.10010.com/sixPalaceGridTuntableLottery/floor/getMonthSign";
     const res = await this.request("get", url, { headers: this.signHeaders(), timeout: 10000 });
-    if (!res) return;
+    if (!res) { this.log("签到区-月签有礼: 接口无有效 JSON 响应"); return; }
     const code = res.code;
     if (code !== "0000") {
       this.log(`签到区-月签有礼: 查询失败[${code}]: ${res.desc || ""}`);

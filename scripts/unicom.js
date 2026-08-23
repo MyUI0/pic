@@ -15,7 +15,7 @@
  *   mode     ：daily（默认，登录+资产+签到） / query（仅查询资产与签到状态）
  */
 
-const SCRIPT_VERSION = "1.1.9-loon";
+const SCRIPT_VERSION = "1.2.0-loon";
 const UA = "Dalvik/2.1.0 (Linux; U; Android 12; Mi 10 Pro MIUI/21.11.3);unicom{version:android@11.0802}";
 const MARKET_UA = UA;
 const STORE_KEY = "china_unicom_token_appid";
@@ -288,6 +288,10 @@ class UserService {
           }
           resolve(JSON.parse(raw));
         } catch (e) {
+          if (opts.silentNonJson) {
+            resolve(null);
+            return;
+          }
           const status = response && (response.status || response.statusCode) ? (response.status || response.statusCode) : "-";
           const snippet = String(raw || "").replace(/\s+/g, " ").slice(0, 180);
           this.log(`请求返回非JSON: status=${status}, body=${snippet || "<empty>"}`);
@@ -403,7 +407,7 @@ class UserService {
     const orderId = randomString(32).toUpperCase();
     try {
       const url = "https://m.client.10010.com/taskcallback/topstories/gettaskip";
-      await this.request("post", url, { data: { mobile: this.account_mobile, orderId } });
+      await this.request("post", url, { data: { mobile: this.account_mobile, orderId }, silentNonJson: true });
     } catch (e) { /* ignore */ }
     return orderId;
   }
@@ -535,7 +539,7 @@ class UserService {
 
   async sign_doTaskFromList(task) {
     if (task.url && task.url !== "1" && String(task.url).startsWith("http")) {
-      await this.request("get", task.url, { headers: this.signHeaders() });
+      await this.request("get", task.url, { headers: this.signHeaders(), silentNonJson: true });
       this.log(`签到区-任务中心: 浏览页面 [${task.taskName}]`);
       await sleep(5000 + Math.floor(Math.random() * 2000)); // 5~7 秒
     }

@@ -1,0 +1,29 @@
+#!name=JDTBXYSIGN
+#!desc=JD Sign + JDJR Goose Pig + TB Coin + XY Checkin
+
+[Script]
+http-request ^https?://api\.m\.jd\.com/ script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JD_Cookie.js,tag=jd_cookie,timeout=10,requires-body=false,enable=true
+
+http-request ^https?://ms\.jr\.jd\.com/ script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JDJR_Cookie.js,tag=jdjr_cookie,timeout=10,requires-body=false,enable=true
+
+http-request ^https?://h5api\.m\.taobao\.com/ script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/TB_XY_Cookie.js,tag=tb_xy_cookie,timeout=10,requires-body=false,enable=true
+
+
+cron "5 7 * * *" script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JD_Sign.js,tag=jd_sign,timeout=60,enable=true
+
+cron "0 8 * * *" script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JD_Goose.js,tag=jd_goose,timeout=60,enable=true
+
+cron "15 8 * * *" script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JD_Pig.js,tag=jd_pig,timeout=60,enable=true
+
+cron "30 7 * * *" script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/TB_Coin.js,tag=tb_coin,timeout=60,enable=true
+
+cron "30 8 * * *" script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/XY_Checkin.js,tag=xy_checkin,timeout=60,enable=true
+
+generic script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JD_Sign.js,tag=手动_JD_Sign,timeout=60
+generic script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JD_Goose.js,tag=手动_JD_Goose,timeout=60
+generic script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/JD_Pig.js,tag=手动_JD_Pig,timeout=60
+generic script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/TB_Coin.js,tag=手动_TB_Coin,timeout=60
+generic script-path=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/surge-loon/XY_Checkin.js,tag=手动_XY_Checkin,timeout=60
+
+[Mitm]
+hostname = api.m.jd.com, ms.jr.jd.com, h5api.m.taobao.com

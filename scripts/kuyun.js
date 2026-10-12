@@ -290,14 +290,32 @@ function saveAuthFromRequest() {
     return;
   }
 
+  // v2026.10.12: Bearer 用于传输，签名仅使用去掉前缀的 token。
+  if (!/^https:\/\/zuhu\.kuka001\.com\//i.test(String($request.url || ''))) {
+    $done({});
+    return;
+  }
   const requestHeaders = $request.headers || {};
+  const authorization = getHeader(requestHeaders, 'Authorization').trim();
+  const bearer = authorization.match(/^Bearer\s+(\S+)\s*$/i);
+  const token = bearer ? bearer[1] : getHeader(requestHeaders, 'token').trim();
+  const openId = getHeader(requestHeaders, 'openId');
+  // 不用缓存补齐缺失凭证，避免切换账号时拼接成错误身份。
+  if ((authorization && !bearer) || !token || !openId) {
+    $done({});
+    return;
+  }
   const oldAuth = safeJson($persistentStore.read(AUTH_KEY) || '{}', {}) || {};
+  const sameAccount = oldAuth.openId === openId &&
+    (!getHeader(requestHeaders, 'uid') || !oldAuth.uid || getHeader(requestHeaders, 'uid') === oldAuth.uid) &&
+    (!getHeader(requestHeaders, 'appId') || !oldAuth.appId || getHeader(requestHeaders, 'appId') === oldAuth.appId);
 
   const auth = {
-    openId: getHeader(requestHeaders, 'openId') || oldAuth.openId || '',
-    token: getHeader(requestHeaders, 'token') || oldAuth.token || '',
-    uid: getHeader(requestHeaders, 'uid') || oldAuth.uid || '',
-    appId: getHeader(requestHeaders, 'appId') || oldAuth.appId || 'wxe417dfc034255e91',
+    openId,
+    token,
+    authScheme: bearer ? 'bearer' : 'token',
+    uid: getHeader(requestHeaders, 'uid') || (sameAccount ? oldAuth.uid : '') || '',
+    appId: getHeader(requestHeaders, 'appId') || (sameAccount ? oldAuth.appId : '') || 'wxe417dfc034255e91',
     version: getHeader(requestHeaders, 'x-version') || oldAuth.version || '1.0.0.0',
     agent: getHeader(requestHeaders, 'x-agent') || oldAuth.agent || 'ios',
     ua: getHeader(requestHeaders, 'User-Agent') || oldAuth.ua || '',
@@ -323,10 +341,7 @@ function saveAuthFromRequest() {
 
   const saved = $persistentStore.write(JSON.stringify(auth), AUTH_KEY);
 
-  console.log(
-    `[${NAME}] 凭证${saved ? '已保存' : '保存失败'} ` +
-    `openId=${mask(auth.openId)} token=${mask(auth.token)} uid=${auth.uid || '-'}`
-  );
+  console.log(`[${NAME}] 凭证${saved ? '已保存' : '保存失败'}，认证方式: ${auth.authScheme}`);
 
   if (saved && CAPTURE_NOTIFY && changed) {
     $notification.post(
@@ -359,7 +374,8 @@ function buildHeaders(auth, url) {
     'openId': auth.openId,
     'uid': auth.uid,
     'appId': auth.appId || 'wxe417dfc034255e91',
-    'token': auth.token,
+    [auth.authScheme === 'token' ? 'token' : 'Authorization']:
+      auth.authScheme === 'token' ? auth.token : `Bearer ${auth.token}`,
     'User-Agent': auth.ua ||
       'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.70',
     'Referer': auth.referer ||

@@ -17,6 +17,10 @@ const TASKS = {
 };
 
 function parseArgs() {
+  // Loon 3.5.1+ typed object binding: never split/decode credential values.
+  if (typeof $argument === 'object' && $argument !== null && !Array.isArray($argument)) {
+    return Object.assign({}, $argument);
+  }
   const raw = typeof $argument === 'string' ? $argument : '';
   const result = {};
 
@@ -64,12 +68,6 @@ function getHeader(headers, name) {
   }
 
   return '';
-}
-
-function mask(value) {
-  if (!value) return '-';
-  const text = String(value);
-  return `${text.slice(0, 6)}***`;
 }
 
 function today() {
@@ -284,73 +282,106 @@ function createSignatureHeaders(auth, url) {
   };
 }
 
-function saveAuthFromRequest() {
-  if (MODE !== 'capture') {
-    $done({});
-    return;
-  }
-
-  // v2026.10.12: Bearer 用于传输，签名仅使用去掉前缀的 token。
-  if (!/^https:\/\/zuhu\.kuka001\.com\//i.test(String($request.url || ''))) {
-    $done({});
-    return;
-  }
-  const requestHeaders = $request.headers || {};
-  const authorization = getHeader(requestHeaders, 'Authorization').trim();
-  const bearer = authorization.match(/^Bearer\s+(\S+)\s*$/i);
-  const token = bearer ? bearer[1] : getHeader(requestHeaders, 'token').trim();
-  const openId = getHeader(requestHeaders, 'openId');
-  // 不用缓存补齐缺失凭证，避免切换账号时拼接成错误身份。
-  if ((authorization && !bearer) || !token || !openId) {
-    $done({});
-    return;
-  }
-  const oldAuth = safeJson($persistentStore.read(AUTH_KEY) || '{}', {}) || {};
-  const sameAccount = oldAuth.openId === openId &&
-    (!getHeader(requestHeaders, 'uid') || !oldAuth.uid || getHeader(requestHeaders, 'uid') === oldAuth.uid) &&
-    (!getHeader(requestHeaders, 'appId') || !oldAuth.appId || getHeader(requestHeaders, 'appId') === oldAuth.appId);
-
-  const auth = {
-    openId,
-    token,
-    authScheme: bearer ? 'bearer' : 'token',
-    uid: getHeader(requestHeaders, 'uid') || (sameAccount ? oldAuth.uid : '') || '',
-    appId: getHeader(requestHeaders, 'appId') || (sameAccount ? oldAuth.appId : '') || 'wxe417dfc034255e91',
-    version: getHeader(requestHeaders, 'x-version') || oldAuth.version || '1.0.0.0',
-    agent: getHeader(requestHeaders, 'x-agent') || oldAuth.agent || 'ios',
-    ua: getHeader(requestHeaders, 'User-Agent') || oldAuth.ua || '',
-    referer: getHeader(requestHeaders, 'Referer') || oldAuth.referer ||
-      'https://servicewechat.com/wxe417dfc034255e91/264/page-frame.html',
-    contentType: getHeader(requestHeaders, 'Content-Type') || oldAuth.contentType ||
-      'application/json;charset=utf-8',
-    updatedAt: new Date().toISOString(),
+function captureHeaders(headers, old) {
+  return {
+    appIdCaptured: !!getHeader(headers, 'appId') || old.appIdCaptured === true,
+    appId: getHeader(headers, 'appId') || old.appId || 'wxe417dfc034255e91',
+    version: getHeader(headers, 'x-version') || '1.0.0.0',
+    agent: getHeader(headers, 'x-agent') || 'ios',
+    ua: getHeader(headers, 'User-Agent'),
+    referer: getHeader(headers, 'Referer'),
+    contentType: getHeader(headers, 'Content-Type') || 'application/json;charset=utf-8',
   };
+}
 
-  const uidMatch = String($request.url || '').match(/\/market\/pointAccount\/uid\/([^/?#]+)/i);
-  if (!auth.uid && uidMatch) auth.uid = decodeValue(uidMatch[1]);
+function sameIdentity(old, openId, uid, appId) {
+  return old.openId === openId && (!uid || !old.uid || uid === old.uid) &&
+    (!appId || !old.appId || appId === old.appId);
+}
 
-  if (!auth.openId || !auth.token) {
-    console.log(`[${NAME}] 当前请求未包含 openId/token，跳过保存`);
+function persistAuth(auth, old) {
+  const changed = !old.token || auth.openId !== old.openId ||
+    auth.authScheme !== old.authScheme || auth.uid !== old.uid || auth.appId !== old.appId;
+  auth.updatedAt = new Date().toISOString();
+  const saved = $persistentStore.write(JSON.stringify(auth), AUTH_KEY);
+  if (!saved) console.log(`[${NAME}] 凭证保存失败`);
+  if (saved && CAPTURE_NOTIFY && changed) {
+    $notification.post(NAME, '凭证保存成功', '认证及签名参数已同步');
+  }
+}
+
+function saveAuthFromRequest() {
+  if (MODE !== 'capture' || !/^https:\/\/zuhu\.kuka001\.com\/(?:market|api)\//i.test(String($request.url || ''))) {
     $done({});
     return;
   }
-
-  const changed = auth.openId !== oldAuth.openId ||
-    auth.token !== oldAuth.token ||
-    auth.uid !== oldAuth.uid;
-
-  const saved = $persistentStore.write(JSON.stringify(auth), AUTH_KEY);
-
-  console.log(`[${NAME}] 凭证${saved ? '已保存' : '保存失败'}，认证方式: ${auth.authScheme}`);
-
-  if (saved && CAPTURE_NOTIFY && changed) {
-    $notification.post(
-      NAME,
-      '凭证保存成功',
-      `uid: ${auth.uid || '暂未捕获'}，签名参数已同步`
-    );
+  const headers = $request.headers || {};
+  const authorization = getHeader(headers, 'Authorization').trim();
+  const bearer = authorization.match(/^Bearer\s+(\S+)\s*$/i);
+  const legacy = getHeader(headers, 'token').trim();
+  const token = bearer ? bearer[1] : legacy;
+  const openId = getHeader(headers, 'openId');
+  const uidMatch = String($request.url || '').match(/\/market\/pointAccount\/uid\/([^/?#]+)/i);
+  const pathUid = uidMatch ? decodeValue(uidMatch[1]) : '';
+  const headerUid = getHeader(headers, 'uid');
+  if ((authorization && !bearer) || (bearer && legacy && legacy !== token) ||
+      !token || !openId || (pathUid && headerUid && pathUid !== headerUid)) {
+    $done({});
+    return;
   }
+  const old = safeJson($persistentStore.read(AUTH_KEY) || '{}', {}) || {};
+  const uid = headerUid || pathUid;
+  // 仅同一 token 且无身份冲突时补齐缓存；新 token 必须重新建立身份。
+  const same = old.token === token && sameIdentity(old, openId, uid, getHeader(headers, 'appId'));
+  const auth = Object.assign(captureHeaders(headers, same ? old : {}), {
+    openId, token, authScheme: bearer ? 'bearer' : 'token',
+    uid: uid || (same ? old.uid : '') || '',
+  });
+  if (same) {
+    if (typeof old.refreshToken === 'string' && old.refreshToken) auth.refreshToken = old.refreshToken;
+    if (Number.isFinite(old.expire) && old.expire > 0) auth.expire = old.expire;
+  }
+  persistAuth(auth, old);
+  $done({});
+}
 
+function saveAuthFromResponse() {
+  // 只读取成功登录响应，绝不读取/保存登录请求体。
+  if (MODE !== 'capture' || typeof $request === 'undefined' ||
+      String($request.method || '').toUpperCase() !== 'POST' ||
+      !/^https:\/\/zuhu\.kuka001\.com\/api\/login\/userSess(?:\?[^#]*)?$/i.test(String($request.url || ''))) {
+    $done({});
+    return;
+  }
+  const status = Number($response.statusCode || $response.status || 0);
+  const json = safeJson($response.body, null);
+  const data = json && json.data;
+  if ((status && (status < 200 || status >= 300)) || !json ||
+      !(json.code === 0 || json.code === '0') || !data ||
+      typeof data.token !== 'string' || !data.token || /\s/.test(data.token)) {
+    $done({});
+    return;
+  }
+  const headers = $request.headers || {};
+  const openId = getHeader(headers, 'openId');
+  const uid = (typeof data.userId === 'string' || typeof data.userId === 'number') ? String(data.userId) : '';
+  const headerUid = getHeader(headers, 'uid');
+  if (!openId || !uid || (headerUid && headerUid !== uid)) {
+    $done({});
+    return;
+  }
+  const old = safeJson($persistentStore.read(AUTH_KEY) || '{}', {}) || {};
+  // 登录响应本身建立完整身份；不继承旧账号 refreshToken/expire。
+  const auth = Object.assign(captureHeaders(headers, {}), {
+    openId, uid, token: data.token, authScheme: 'bearer',
+  });
+  if (typeof data.refreshToken === 'string' && data.refreshToken && !/\s/.test(data.refreshToken)) {
+    auth.refreshToken = data.refreshToken;
+  }
+  const expire = (typeof data.expire === 'number' ||
+    (typeof data.expire === 'string' && /^\d{13}$/.test(data.expire))) ? Number(data.expire) : NaN;
+  if (Number.isSafeInteger(expire) && expire > 0) auth.expire = expire;
+  persistAuth(auth, old);
   $done({});
 }
 
@@ -384,43 +415,111 @@ function buildHeaders(auth, url) {
 }
 
 function apiSuccess(json) {
-  return !!json && Number(json.code) === 0;
+  return !!json && (json.code === 0 || json.code === '0');
 }
 
 function resultMessage(result, fallback) {
-  if (result && result.json) {
-    return String(result.json.msg || result.json.message || fallback);
-  }
-  if (result && result.error) return String(result.error);
-  if (result && result.raw) return String(result.raw);
+  // 不透传服务端 msg/message/raw 或网络异常，避免回显认证与个人数据。
+  if (result && (result.status === 401 || result.status === 403)) return '认证失败，请重新登录并捕获凭证';
+  if (result && result.error) return '网络请求失败';
   return fallback;
 }
 
-function request(method, url, body, auth) {
+const LOGIN_ERRORS = {
+  disabled: '登录已失效；自动登录未开启，请重新捕获凭证',
+  config: '请在 Loon 插件设置填写账号和 API password 字段值，并开启自动登录',
+  headers: '缺少已捕获的 openId/appId：请开启捕获并在小程序正常登录一次',
+  failed: '自动登录失败，已停止本轮；请检查 API password 字段值或重新捕获凭证',
+  changed: '自动登录返回不同账号，已停止且未覆盖缓存；请手动登录目标账号并重新捕获',
+  exhausted: '认证仍失败，本轮不再登录或重试',
+};
+let loginAttempted = false;
+let authAborted = false;
+function stopAuth(key) {
+  authAborted = true;
+  throw new Error(LOGIN_ERRORS[key]);
+}
+function authRejected(result) {
+  // Network errors/timeouts are ambiguous: never replay them.
+  if (result.error) return false;
+  if (result.status === 401) return true;
+  if (!result.json || apiSuccess(result.json)) return false;
+  const message = result.json.msg || result.json.message;
+  // Conservative exact messages; generic nonzero codes / 403 are NOT enough.
+  return typeof message === 'string' && [
+    '登录已过期', '登录已失效', '登录已过期，请重新登录',
+    '登录已失效，请重新登录', '登录过期，请重新登录',
+    'token expired', 'token has expired', 'jwt expired',
+  ].includes(message.trim().toLowerCase());
+}
+function buildLoginHeaders(auth, url) {
+  return Object.assign({
+    'content-type': 'application/json;charset=utf-8',
+    openId: auth.openId, appId: auth.appId,
+    'User-Agent': auth.ua || '', Referer: auth.referer || '',
+  }, createSignatureHeaders(Object.assign({}, auth, {token: ''}), url));
+}
+async function relogin(auth) {
+  if (loginAttempted) stopAuth('exhausted');
+  if (!(ARG.autoLogin === true || ARG.autoLogin === 'true')) stopAuth('disabled');
+  // Credentials are accepted ONLY through typed object parameters.
+  if (typeof $argument !== 'object' || typeof ARG.mobile !== 'string' || !ARG.mobile ||
+      typeof ARG.password !== 'string' || !ARG.password) stopAuth('config');
+  if (!auth.openId || !auth.appId || auth.appIdCaptured !== true) stopAuth('headers');
+  loginAttempted = true;
+  const url = `${BASE}/api/login/userSess`;
+  const result = await sendRequest('POST', url, {
+    mobile: ARG.mobile, password: ARG.password, rememberPsw: true, agree: true,
+  }, buildLoginHeaders(auth, url));
+  const data = result.json && result.json.data;
+  if (!result.ok || !data || typeof data.token !== 'string' || !data.token || /\s/.test(data.token) ||
+      !['string', 'number'].includes(typeof data.userId) || !String(data.userId)) stopAuth('failed');
+  if (String(data.userId) !== String(auth.uid)) stopAuth('changed');
+  // Explicit whitelist, never spread the response or cached credential record.
+  const next = {openId: auth.openId, uid: String(data.userId), appId: auth.appId,
+    appIdCaptured: true, token: data.token, authScheme: 'bearer',
+    version: auth.version, agent: auth.agent, ua: auth.ua, referer: auth.referer,
+    contentType: 'application/json;charset=utf-8'};
+  if (typeof data.refreshToken === 'string' && data.refreshToken && !/\s/.test(data.refreshToken)) next.refreshToken = data.refreshToken;
+  const expire = (typeof data.expire === 'number' ||
+    (typeof data.expire === 'string' && /^\d{13}$/.test(data.expire))) ? Number(data.expire) : NaN;
+  if (Number.isSafeInteger(expire) && expire > 0) next.expire = expire;
+  persistAuth(next, auth);
+  Object.keys(auth).forEach(key => delete auth[key]);
+  Object.assign(auth, next);
+}
+async function request(method, url, body, auth) {
+  if (authAborted) stopAuth('exhausted');
+  let result = await sendRequest(method, url, body, buildHeaders(auth, url));
+  if (!authRejected(result)) return result;
+  await relogin(auth);
+  // relogin rejects a changed uid: a cached uid URL can never cross accounts.
+  result = await sendRequest(method, url, body, buildHeaders(auth, url));
+  if (authRejected(result)) stopAuth('exhausted');
+  return result;
+}
+function sendRequest(method, url, body, headers) {
   return new Promise(resolve => {
-    const client = $httpClient[String(method).toLowerCase()];
-    const options = {
-      url,
-      headers: buildHeaders(auth, url),
-      timeout: 15000,
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      if (typeof clearTimeout === 'function') clearTimeout(timer);
+      resolve(result);
     };
-
-    if (body !== undefined && body !== null) {
-      options.body = typeof body === 'string' ? body : JSON.stringify(body);
-    }
-
-    client(options, (error, response, data) => {
-      const status = response ? Number(response.statusCode || response.status || 0) : 0;
-      const json = safeJson(data, null);
-
-      resolve({
-        ok: !error && apiSuccess(json),
-        status,
-        error: error ? String(error) : '',
-        json,
-        raw: data,
+    const failure = {ok: false, status: 0, error: true, json: null};
+    const timer = setTimeout(() => finish(failure), 15000);
+    const options = {url, headers, timeout: 15000, 'auto-redirect': false,
+      'auto-cookie': false, insecure: false}; // Loon HTTP timeout is milliseconds.
+    if (body !== undefined && body !== null) options.body = typeof body === 'string' ? body : JSON.stringify(body);
+    try {
+      $httpClient[String(method).toLowerCase()](options, (error, response, data) => {
+        const status = response ? Number(response.statusCode || response.status || 0) : 0;
+        const json = safeJson(data, null);
+        finish({ok: !error && status >= 200 && status < 300 && apiSuccess(json),
+          status, error: !!error, json});
       });
-    });
+    } catch (_) { finish(failure); }
   });
 }
 
@@ -544,11 +643,18 @@ async function main() {
   $done();
 }
 
-if (typeof $request !== 'undefined') {
+// Response hooks also provide $request: dispatch them first.
+if (typeof $response !== 'undefined') {
+  saveAuthFromResponse();
+} else if (typeof $request !== 'undefined') {
   saveAuthFromRequest();
 } else {
   main().catch(error => {
-    const message = error && error.message ? error.message : String(error);
+    const knownErrors = Object.values(LOGIN_ERRORS).concat([
+      '缺少 openId/token：请开启插件中的“自动抓包更新登录凭证”，再打开酷云/酷卡小程序',
+      '缺少 uid：请开启抓包开关并重新进入酷云/酷卡小程序积分页面',
+    ]);
+    const message = error && knownErrors.includes(error.message) ? error.message : '运行异常，请检查配置或重新捕获凭证';
     console.log(`[${NAME}] ${message}`);
     $notification.post(NAME, '运行失败', message);
     $done();

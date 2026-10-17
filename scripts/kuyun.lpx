@@ -1,7 +1,7 @@
 
 #!name=酷云自动签到
-#!desc=酷云/酷卡签到与积分任务；支持捕获凭证及失效后单次自动登录，API密码值需本地填写，未验证普通密码格式
-#!date=2026-10-13
+#!desc=酷云/酷卡签到与积分任务；源码确认refreshToken优先刷新，普通密码后备默认关闭，需本地自愿填写
+#!date=2026-10-17
 #!author=AutoScript
 #!icon=https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/kuyun.png
 #!loon_version=3.5.1(983)
@@ -10,9 +10,9 @@
 arg1 = switch,true,tag=启用每日签到
 arg2 = switch,false,tag=自动抓包更新登录凭证
 arg3 = input,"5 9 * * *",tag=签到时间
-autoLogin = switch,false,tag=失效后自动登录,desc=启用表示同意登录协议；账号及API密码值保存在插件设置中
+autoLogin = switch,false,tag=密码登录后备,desc=刷新不可用或明确失效时才尝试一次；启用表示同意登录协议；参数明文勿分享
 mobile = input,"",type=string,tag=登录账号,desc=仅本地手填 不从抓包读取
-password = input,"",type=string,tag=API password 字段值,desc=并非已确认的普通密码 插件设置为明文勿分享
+password = input,"",type=string,tag=普通登录密码,desc=源码仅去除首尾空白 不做MD5；旧API密码值请清空重填；明文勿分享
 
 [Script]
 cron ${arg3} then script("https://raw.githubusercontent.com/MyUI0/pic/refs/heads/main/scripts/kuyun.js", {${autoLogin}, ${mobile}, ${password}}) with timeout=240, enable=${arg1}, tag="酷云每日签到"

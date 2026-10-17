@@ -364,7 +364,7 @@ function saveAuthFromResponse() {
   }
   const headers = $request.headers || {};
   const openId = getHeader(headers, 'openId');
-  const uid = (typeof data.userId === 'string' || typeof data.userId === 'number') ? String(data.userId) : '';
+  const uid = sessionUid(data);
   const headerUid = getHeader(headers, 'uid');
   if (!openId || !uid || (headerUid && headerUid !== uid)) {
     $done({});
@@ -373,17 +373,31 @@ function saveAuthFromResponse() {
   const old = safeJson($persistentStore.read(AUTH_KEY) || '{}', {}) || {};
   // 登录响应本身建立完整身份；不继承旧账号 refreshToken/expire。
   const auth = Object.assign(captureHeaders(headers, {}), {
-    openId, uid, token: data.token, authScheme: 'bearer',
+    openId, uid, token: data.token, authScheme: tokenScheme(data.token),
   });
   if (typeof data.refreshToken === 'string' && data.refreshToken && !/\s/.test(data.refreshToken)) {
     auth.refreshToken = data.refreshToken;
   }
-  const expire = (typeof data.expire === 'number' ||
-    (typeof data.expire === 'string' && /^\d{13}$/.test(data.expire))) ? Number(data.expire) : NaN;
-  if (Number.isSafeInteger(expire) && expire > 0) auth.expire = expire;
+  const expire = normalizeExpire(data.expire);
+  if (expire) auth.expire = expire;
   persistAuth(auth, old);
   $done({});
 }
+
+function sessionUid(data) {
+  // Prefer the observed top-level id; source also uses userInfo.id.
+  // Read only the id when necessary, never copy or log the profile.
+  let value = data.userId;
+  if (value === undefined && data.userInfo && typeof data.userInfo === 'object') value = data.userInfo.id;
+  return ['string', 'number'].includes(typeof value) && String(value) ? String(value) : '';
+}
+function normalizeExpire(value) {
+  if (!['string', 'number'].includes(typeof value) || value === '') return 0;
+  const number = Number(value);
+  const ms = number < 1e12 ? number * 1000 : number;
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : 0;
+}
+function tokenScheme(token) { return token.startsWith('kkv2_') ? 'bearer' : 'token'; }
 
 function loadAuth() {
   const auth = safeJson($persistentStore.read(AUTH_KEY) || '{}', {}) || {};
@@ -400,13 +414,14 @@ function loadAuth() {
 }
 
 function buildHeaders(auth, url) {
+  const scheme = auth.authScheme || tokenScheme(auth.token);
   return Object.assign({
     'content-type': auth.contentType || 'application/json;charset=utf-8',
     'openId': auth.openId,
     'uid': auth.uid,
     'appId': auth.appId || 'wxe417dfc034255e91',
-    [auth.authScheme === 'token' ? 'token' : 'Authorization']:
-      auth.authScheme === 'token' ? auth.token : `Bearer ${auth.token}`,
+    [scheme === 'token' ? 'token' : 'Authorization']:
+      scheme === 'token' ? auth.token : `Bearer ${auth.token}`,
     'User-Agent': auth.ua ||
       'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.70',
     'Referer': auth.referer ||
@@ -427,9 +442,12 @@ function resultMessage(result, fallback) {
 
 const LOGIN_ERRORS = {
   disabled: '登录已失效；自动登录未开启，请重新捕获凭证',
-  config: '请在 Loon 插件设置填写账号和 API password 字段值，并开启自动登录',
+  config: '请在 Loon 插件本地填写普通登录密码和账号，并开启密码登录后备',
   headers: '缺少已捕获的 openId/appId：请开启捕获并在小程序正常登录一次',
-  failed: '自动登录失败，已停止本轮；请检查 API password 字段值或重新捕获凭证',
+  failed: '认证恢复失败，已停止本轮；请在小程序重新登录并捕获凭证',
+  busy: '另一轮正在更新认证，已停止本轮，请稍后重试',
+  stale: '认证缓存已被更新，已停止本轮且未覆盖新凭证',
+  storage: '认证存储写入失败，已停止本轮',
   changed: '自动登录返回不同账号，已停止且未覆盖缓存；请手动登录目标账号并重新捕获',
   exhausted: '认证仍失败，本轮不再登录或重试',
 };
@@ -441,9 +459,10 @@ function stopAuth(key) {
 }
 function authRejected(result) {
   // Network errors/timeouts are ambiguous: never replay them.
-  if (result.error) return false;
+  if (result.error || result.status >= 500) return false;
   if (result.status === 401) return true;
   if (!result.json || apiSuccess(result.json)) return false;
+  if (result.json.code === 401 || result.json.code === '401') return true;
   const message = result.json.msg || result.json.message;
   // Conservative exact messages; generic nonzero codes / 403 are NOT enough.
   return typeof message === 'string' && [
@@ -455,45 +474,118 @@ function authRejected(result) {
 function buildLoginHeaders(auth, url) {
   return Object.assign({
     'content-type': 'application/json;charset=utf-8',
-    openId: auth.openId, appId: auth.appId,
+    openId: auth.openId, appId: auth.appId, uid: auth.uid,
     'User-Agent': auth.ua || '', Referer: auth.referer || '',
-  }, createSignatureHeaders(Object.assign({}, auth, {token: ''}), url));
+  }, createSignatureHeaders(auth, url));
+}
+let recoveryPromise = null;
+let recoveryLeaseOwner = null;
+let recoveryAttempted = false;
+const LOCK_KEY = AUTH_KEY + '_lock';
+function authFingerprint(auth) {
+  return JSON.stringify([auth.openId, String(auth.uid), auth.appId, auth.token, auth.refreshToken || '']);
+}
+function assertCurrent(auth) {
+  const current = safeJson($persistentStore.read(AUTH_KEY), {});
+  if (!current || authFingerprint(current) !== authFingerprint(auth)) stopAuth('stale');
+}
+function validToken(value) { return typeof value === 'string' && !!value && !/\s/.test(value); }
+function commitSession(auth, data, requireUid) {
+  if (!data || !validToken(data.token)) stopAuth('failed');
+  const uid = requireUid ? sessionUid(data) :
+    (['string', 'number'].includes(typeof data.userId) ? String(data.userId) : '');
+  if (requireUid && !uid) stopAuth('failed');
+  if (uid && uid !== String(auth.uid)) stopAuth('changed');
+  if (data.userId !== undefined && !uid) stopAuth('failed');
+  // Refresh normally has no userId. Bind it to the exact captured token generation.
+  if (data.openId !== undefined && data.openId !== auth.openId) stopAuth('changed');
+  const expire = normalizeExpire(data.expire);
+  if (!expire || expire < Date.now()) stopAuth('failed');
+  if (data.refreshToken != null && data.refreshToken !== '' && !validToken(data.refreshToken)) stopAuth('failed');
+  assertCurrent(auth);
+  const lease = safeJson($persistentStore.read(LOCK_KEY), {});
+  if (!lease || lease.owner !== recoveryLeaseOwner || lease.until <= Date.now()) stopAuth('busy');
+  const next = {openId: auth.openId, uid: String(auth.uid), appId: auth.appId,
+    appIdCaptured: auth.appIdCaptured === true, token: data.token, authScheme: tokenScheme(data.token),
+    version: auth.version, agent: auth.agent, ua: auth.ua, referer: auth.referer,
+    contentType: 'application/json;charset=utf-8', expire, updatedAt: new Date().toISOString()};
+  // Never keep an old refreshToken after rotation, even if the new response omits it.
+  if (validToken(data.refreshToken)) next.refreshToken = data.refreshToken;
+  if (!$persistentStore.write(JSON.stringify(next), AUTH_KEY)) stopAuth('storage');
+  Object.keys(auth).forEach(key => delete auth[key]);
+  Object.assign(auth, next);
 }
 async function relogin(auth) {
   if (loginAttempted) stopAuth('exhausted');
   if (!(ARG.autoLogin === true || ARG.autoLogin === 'true')) stopAuth('disabled');
-  // Credentials are accepted ONLY through typed object parameters.
-  if (typeof $argument !== 'object' || typeof ARG.mobile !== 'string' || !ARG.mobile ||
-      typeof ARG.password !== 'string' || !ARG.password) stopAuth('config');
+  if (typeof $argument !== 'object' || typeof ARG.mobile !== 'string' || !ARG.mobile.trim() ||
+      typeof ARG.password !== 'string' || !ARG.password.trim()) stopAuth('config');
   if (!auth.openId || !auth.appId || auth.appIdCaptured !== true) stopAuth('headers');
+  assertCurrent(auth);
   loginAttempted = true;
   const url = `${BASE}/api/login/userSess`;
   const result = await sendRequest('POST', url, {
-    mobile: ARG.mobile, password: ARG.password, rememberPsw: true, agree: true,
+    mobile: ARG.mobile.trim(), password: ARG.password.trim(), rememberPsw: true, agree: true,
   }, buildLoginHeaders(auth, url));
-  const data = result.json && result.json.data;
-  if (!result.ok || !data || typeof data.token !== 'string' || !data.token || /\s/.test(data.token) ||
-      !['string', 'number'].includes(typeof data.userId) || !String(data.userId)) stopAuth('failed');
-  if (String(data.userId) !== String(auth.uid)) stopAuth('changed');
-  // Explicit whitelist, never spread the response or cached credential record.
-  const next = {openId: auth.openId, uid: String(data.userId), appId: auth.appId,
-    appIdCaptured: true, token: data.token, authScheme: 'bearer',
-    version: auth.version, agent: auth.agent, ua: auth.ua, referer: auth.referer,
-    contentType: 'application/json;charset=utf-8'};
-  if (typeof data.refreshToken === 'string' && data.refreshToken && !/\s/.test(data.refreshToken)) next.refreshToken = data.refreshToken;
-  const expire = (typeof data.expire === 'number' ||
-    (typeof data.expire === 'string' && /^\d{13}$/.test(data.expire))) ? Number(data.expire) : NaN;
-  if (Number.isSafeInteger(expire) && expire > 0) next.expire = expire;
-  persistAuth(next, auth);
-  Object.keys(auth).forEach(key => delete auth[key]);
-  Object.assign(auth, next);
+  if (!result.ok) stopAuth('failed');
+  commitSession(auth, result.json.data, true);
+}
+async function recoverAuth(auth) {
+  // Share a single recovery for parallel callers within this script invocation.
+  if (recoveryPromise) return recoveryPromise;
+  if (recoveryAttempted) stopAuth('exhausted');
+  recoveryAttempted = true;
+  recoveryPromise = (async () => {
+    assertCurrent(auth);
+    const lock = safeJson($persistentStore.read(LOCK_KEY), {});
+    if (lock && lock.until > Date.now()) stopAuth('busy');
+    const owner = uuid();
+    // Best-effort cross-script lease; Loon has no atomic compare-and-swap.
+    if (!$persistentStore.write(JSON.stringify({owner, until: Date.now() + 60000}), LOCK_KEY)) stopAuth('storage');
+    const mine = safeJson($persistentStore.read(LOCK_KEY), {});
+    if (!mine || mine.owner !== owner) stopAuth('busy');
+    recoveryLeaseOwner = owner;
+    try {
+      assertCurrent(auth);
+      if (validToken(auth.refreshToken)) {
+        const result = await sendRequest('POST', `${BASE}/api/auth/refresh`,
+          {refreshToken: auth.refreshToken}, {'content-type': 'application/json;charset=utf-8'});
+        assertCurrent(auth);
+        if (result.ok) {
+          commitSession(auth, result.json.data || result.json, false);
+          return;
+        }
+        // Only explicit auth rejection permits optional password fallback.
+        // Timeout/5xx/unknown business error may have consumed the refresh token.
+        if (!authRejected(result)) stopAuth('failed');
+      }
+      await relogin(auth);
+    } finally {
+      const current = safeJson($persistentStore.read(LOCK_KEY), {});
+      if (current && current.owner === owner) $persistentStore.write('', LOCK_KEY);
+    }
+  })();
+  return recoveryPromise;
 }
 async function request(method, url, body, auth) {
   if (authAborted) stopAuth('exhausted');
+  assertCurrent(auth);
+  // Source checks expiry before dispatch, with seconds/milliseconds normalization.
+  const expire = normalizeExpire(auth.expire);
+  let recovered = false;
+  if (expire && Date.now() > expire) { await recoverAuth(auth); recovered = true; }
+  assertCurrent(auth);
+  const sentToken = auth.token;
   let result = await sendRequest(method, url, body, buildHeaders(auth, url));
   if (!authRejected(result)) return result;
-  await relogin(auth);
-  // relogin rejects a changed uid: a cached uid URL can never cross accounts.
+  if (recovered) stopAuth('exhausted');
+  if (recoveryPromise) {
+    await recoveryPromise;
+    if (auth.token === sentToken) stopAuth('exhausted');
+  } else {
+    await recoverAuth(auth);
+  }
+  assertCurrent(auth);
   result = await sendRequest(method, url, body, buildHeaders(auth, url));
   if (authRejected(result)) stopAuth('exhausted');
   return result;

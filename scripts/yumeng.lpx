@@ -1,9 +1,9 @@
 #!name=萌友水电只读（实验）
-#!desc=仅四个普通水电查询；需 Loon 3.5.1(983)+，需配套本地脚本与 HTTPS 解密
+#!desc=仅四个普通水电查询；需 Loon 3.5.1(983)+ 与 HTTPS 解密，脚本从 GitHub 加载
 
 [Script]
-request if ${url} ~= /^https:\/\/gw2c\.yumeng\.work\/app2c\/(?:water_meter\/list_home_water_meter|electric_meter\/(?:list_home_electric_meter|get_home_electric_meter_info|list_power_day_usage))(?:\?[^#]*)?$/i && ${request.method} == "POST" then script("mengyou-loon.js") with tag="萌友水电请求", requires_body=true
-response if ${url} ~= /^https:\/\/gw2c\.yumeng\.work\/app2c\/(?:water_meter\/list_home_water_meter|electric_meter\/(?:list_home_electric_meter|get_home_electric_meter_info|list_power_day_usage))(?:\?[^#]*)?$/i && ${request.method} == "POST" then script("mengyou-loon.js") with tag="萌友水电响应"
+request if ${url} ~= /^https:\/\/gw2c\.yumeng\.work\/app2c\/(?:water_meter\/list_home_water_meter|electric_meter\/(?:list_home_electric_meter|get_home_electric_meter_info|list_power_day_usage))(?:\?[^#]*)?$/i && ${request.method} == "POST" then script("https://raw.githubusercontent.com/MyUI0/pic/main/scripts/yumeng.js") with tag="萌友水电请求", requires_body=true
+response if ${url} ~= /^https:\/\/gw2c\.yumeng\.work\/app2c\/(?:water_meter\/list_home_water_meter|electric_meter\/(?:list_home_electric_meter|get_home_electric_meter_info|list_power_day_usage))(?:\?[^#]*)?$/i && ${request.method} == "POST" then script("https://raw.githubusercontent.com/MyUI0/pic/main/scripts/yumeng.js") with tag="萌友水电响应"
 
 [Mitm]
 hostname = gw2c.yumeng.work

@@ -233,7 +233,7 @@ function read() {
   try { const v = JSON.parse($persistentStore.read(STORE) || "null"); return v && typeof v === "object" ? v : null; } catch (_) { return null; }
 }
 function valid(v) {
-  return v && /^Bearer\s+\S+$/i.test(v.auth || "") && typeof v.tenant === "string" && v.tenant.length > 0 && typeof v.appId === "string" && v.appId.length > 0 && typeof v.cityId === "string" && v.cityId.length > 0;
+  return v && /^Bearer\s+\S+$/i.test(v.auth || "") && typeof v.tenant === "string" && typeof v.appId === "string" && v.appId.length > 0 && typeof v.cityId === "string" && v.cityId.length > 0;
 }
 function write(v) { return $persistentStore.write(JSON.stringify(v), STORE) === true; }
 function version() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
@@ -262,15 +262,29 @@ function run() {
   const widget = !!id;
   if (typeof $response === "undefined") {
     if (!widget) {
+      const d = { body: false, envelope: false, decrypt: false, auth: false, tenant: false, app: false, city: false, write: false, readback: false, error: "none" };
       try {
+        d.auth = /^Bearer\s+\S+$/i.test(header(h, "Authorization"));
+        d.tenant = Object.keys(h).some(k => k.toLowerCase() === "x-t-id");
+        d.body = typeof $request.body === "string";
+        if (!d.body) throw "body_type";
+        const env = JSON.parse($request.body);
+        d.envelope = !!env && typeof env.data === "string";
+        if (!d.envelope) throw "envelope";
         const biz = bodyObject($request.body);
+        d.decrypt = true;
         const v = { auth: header(h, "Authorization"), tenant: header(h, "x-t-id"), appId: biz.appId, cityId: biz.cityId };
-        if (valid(v)) {
+        d.app = typeof v.appId === "string" && v.appId.length > 0;
+        d.city = typeof v.cityId === "string" && v.cityId.length > 0;
+        if (d.tenant && valid(v)) {
           const old = read();
           v.version = valid(old) && old.auth === v.auth && old.tenant === v.tenant && old.appId === v.appId && old.cityId === v.cityId && old.version ? old.version : version();
-          write(v);
+          d.write = write(v);
+          const saved = read();
+          d.readback = d.write && valid(saved) && saved.version === v.version;
         }
-      } catch (_) {}
+      } catch (_) { d.error = !d.body ? "body_type" : !d.envelope ? "envelope" : !d.decrypt ? "decrypt" : "store"; }
+      console.log("[MengyouDiag-v2] " + JSON.stringify(d));
       return {};
     }
     try {

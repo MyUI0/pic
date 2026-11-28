@@ -1,3 +1,15 @@
+// 诊断标记必须位于密码学初始化之前；记录失败不影响业务。
+let diagStart;
+try { diagStart = Date.now(); } catch (_) {}
+function diag(stage, result, error) {
+  try {
+    const elapsed = typeof diagStart === "number" ? Math.max(0, Date.now() - diagStart) : -1;
+    console.log("[MengyouDiag-v3] " + JSON.stringify({ stage, result, error, ms: Number.isFinite(elapsed) ? Math.round(elapsed) : -1 }));
+  } catch (_) {}
+}
+diag("start", "entered", "none");
+let result = {};
+try {
 const _AL = (() => {
   const a = [];
   for (let c = 48; c <= 57; c++) a.push(String.fromCharCode(c));
@@ -256,7 +268,8 @@ function blocked() {
   return { response: { status: 428, headers: { "Content-Type": "application/json" }, body: '{"code":"LOON_AUTH_MISSING"}' } };
 }
 function run() {
-  if (!$request || $request.method !== "POST" || !TARGET.test($request.url || "")) return {};
+  let stage = "route";
+  if (!$request || $request.method !== "POST" || !TARGET.test($request.url || "")) { diag("route", "skip", "none"); return {}; }
   const h = $request.headers || {};
   const id = markerId(h);
   const widget = !!id;
@@ -284,23 +297,32 @@ function run() {
           d.readback = d.write && valid(saved) && saved.version === v.version;
         }
       } catch (_) { d.error = !d.body ? "body_type" : !d.envelope ? "envelope" : !d.decrypt ? "decrypt" : "store"; }
-      console.log("[MengyouDiag-v2] " + JSON.stringify(d));
+      try { console.log("[MengyouDiag-v2] " + JSON.stringify(d)); } catch (_) {}
+      diag("capture", d.readback ? "saved" : "not_saved", d.error !== "none" ? d.error : (!d.auth || !d.tenant || !d.app || !d.city) ? "validation" : !d.write ? "write" : !d.readback ? "readback" : "none");
       return {};
     }
     try {
+      stage = "read";
       const v = read();
-      if (!valid(v)) return blocked();
-      if (!v.version) { v.version = version(); if (!write(v)) return blocked(); }
+      if (!valid(v)) { diag("widget_request", "blocked", "read"); return blocked(); }
+      stage = "version_write";
+      if (!v.version) { v.version = version(); if (!write(v)) { diag("widget_request", "blocked", "version_write"); return blocked(); } }
+      stage = "body";
       const biz = bodyObject($request.body);
-      if (!$persistentStore.write(JSON.stringify({id, version: v.version}), pendingKey(id))) return blocked();
+      stage = "pending_write";
+      if (!$persistentStore.write(JSON.stringify({id, version: v.version}), pendingKey(id))) { diag("widget_request", "blocked", "pending_write"); return blocked(); }
       biz.appId = v.appId; biz.cityId = v.cityId;
       const headers = Object.assign({}, h);
       del(headers, "Authorization"); del(headers, "x-t-id"); del(headers, "Content-Length");
       headers.Authorization = v.auth; headers["x-t-id"] = v.tenant;
-      return { headers, body: JSON.stringify({ data: encryptBody(biz, cfg) }) };
-    } catch (_) { return blocked(); }
+      stage = "encrypt";
+      const result = { headers, body: JSON.stringify({ data: encryptBody(biz, cfg) }) };
+      diag("widget_request", "injected", "none");
+      return result;
+    } catch (_) { diag("widget_request", "blocked", stage); return blocked(); }
   }
   const rh = $response.headers || {};
+  let responseResult = "skipped";
   const nt = header(rh, "nt").trim();
   try {
     const old = read();
@@ -317,16 +339,30 @@ function run() {
     if (valid(old) && matched && /^\S+$/.test(nt) && Number($response.status) >= 200 && Number($response.status) < 300) {
       old.auth = "Bearer " + nt;
       old.version = version();
-      write(old);
+      responseResult = write(old) ? "updated" : "write_failed";
     }
-  } catch (_) {}
-  if (!widget) return {};
+  } catch (_) { responseResult = "error"; }
+  if (!widget) { diag("capture_response", responseResult, responseResult === "error" ? "response" : responseResult === "write_failed" ? "write" : "none"); return {}; }
   // 不将服务端新 token 交给 Scriptable；标记由组件验证响应脚本是否经过。
   const headers = Object.assign({}, rh);
   del(headers, "nt"); del(headers, "x-mengyou-loon");
   headers["X-Mengyou-Loon"] = "v1";
+  diag("widget_response", responseResult, responseResult === "error" ? "response" : responseResult === "write_failed" ? "write" : "none");
   return { headers };
 }
-let result;
-try { result = run(); } catch (_) { result = (typeof $response === "undefined" && markerId(($request || {}).headers)) ? blocked() : {}; }
+try { result = run(); } catch (_) {
+  diag("dispatch", "error", "unexpected");
+  try { result = (typeof $response === "undefined" && markerId(($request || {}).headers)) ? blocked() : {}; } catch (_) { result = {}; }
+}
+
+} catch (_) {
+  diag("initialization", "error", "unexpected");
+  try {
+    const headers = $request.headers || {};
+    const key = Object.keys(headers).find(k => k.toLowerCase() === "x-mengyou-widget");
+    if (typeof $response === "undefined" && key && /^loon-v1-[a-z0-9]{8,40}$/.test(String(headers[key] || ""))) {
+      result = { response: { status: 428, headers: { "Content-Type": "application/json" }, body: '{"code":"LOON_AUTH_MISSING"}' } };
+    }
+  } catch (_) {}
+}
 $done(result);
